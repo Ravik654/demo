@@ -1290,3 +1290,482 @@ INSERT INTO aeoandiecpayeeaudithistory(PayeeId , fieldName , oldValue , newValue
 
 END;
 /
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+CREATE OR REPLACE PROCEDURE "ADJUSTMENTSPAYMENTSREPORTS" (
+    v_UserId IN NUMBER DEFAULT 0,
+    v_ULB IN NUMBER,
+    v_DebitAccountNumber IN VARCHAR2,
+    v_CreditAccountNumber IN VARCHAR2,
+    v_FromDate IN VARCHAR2,
+    v_ToDate IN VARCHAR2,
+    v_Status IN VARCHAR2,
+    v_sortOrder IN VARCHAR2,
+    v_pageNo IN NUMBER,
+    v_pageSize IN NUMBER,
+    v_isAdjustMent IN NUMBER,
+    v_ReportType IN VARCHAR2, -- 'PAYMENT', 'ADMIN', 'AEOIEC', or NULL for ALL
+    v_cursor OUT SYS_REFCURSOR
+)
+AS
+    v_ulbName VARCHAR2(100);
+BEGIN
+    -- Fetch the ULB name based on the user (only needed for PAYMENT and AEOIEC types)
+    SELECT NVL(
+        (SELECT ulbname 
+         FROM accountmaster
+         WHERE ',' || USERS || ',' LIKE '%,' || TO_CHAR(v_UserId) || ',%' 
+         AND ROWNUM = 1),
+        ''
+    ) INTO v_ulbName FROM dual;
+
+    -- Use conditional logic instead of dynamic SQL to avoid buffer overflow
+    IF v_ReportType = 'PROJECT' THEN
+        OPEN v_cursor FOR
+        SELECT B.*
+        FROM (
+            SELECT A.*, COUNT(*) OVER () AS TotalCount,
+                ROW_NUMBER() OVER (
+                    ORDER BY  
+                        CASE WHEN v_sortOrder = 'DebitAccountNumber_ASC' THEN A.DebitAccountNumber END ASC,
+                        CASE WHEN v_sortOrder = 'DebitAccountNumber_DESC' THEN A.DebitAccountNumber END DESC,
+                        CASE WHEN v_sortOrder = 'DebitAccountName_ASC' THEN A.DebitAccountName END ASC,
+                        CASE WHEN v_sortOrder = 'DebitAccountName_DESC' THEN A.DebitAccountName END DESC,
+                        CASE WHEN v_sortOrder = 'CreditAccountNumber_ASC' THEN A.CreditAccountNumber END ASC,
+                        CASE WHEN v_sortOrder = 'CreditAccountNumber_DESC' THEN A.CreditAccountNumber END DESC,
+                        CASE WHEN v_sortOrder = 'CreditAccountName_ASC' THEN A.CreditAccountName END ASC,
+                        CASE WHEN v_sortOrder = 'CreditAccountName_DESC' THEN A.CreditAccountName END DESC,
+                        CASE WHEN v_sortOrder = 'ULB_ASC' THEN A.ULB END ASC,
+                        CASE WHEN v_sortOrder = 'ULB_DESC' THEN A.ULB END DESC,
+                        CASE WHEN v_sortOrder = 'Amount_ASC' THEN A.Amount END ASC,
+                        CASE WHEN v_sortOrder = 'Amount_DESC' THEN A.Amount END DESC,
+                        CASE WHEN v_sortOrder = 'TDS_ASC' THEN A.tds END ASC,
+                        CASE WHEN v_sortOrder = 'TDS_DESC' THEN A.tds END DESC,
+                        CASE WHEN v_sortOrder = 'Comments_ASC' THEN A.Comments END ASC,
+                        CASE WHEN v_sortOrder = 'Comments_DESC' THEN A.Comments END DESC,
+                        CASE WHEN v_sortOrder = 'StructureTypeName_ASC' THEN A.SturctureTypeName END ASC,
+                        CASE WHEN v_sortOrder = 'StructureTypeName_DESC' THEN A.SturctureTypeName END DESC,
+                        CASE WHEN v_sortOrder = 'RefNo_ASC' THEN A.RefNo END ASC,
+                        CASE WHEN v_sortOrder = 'RefNo_DESC' THEN A.RefNo END DESC,
+                        CASE WHEN v_sortOrder = 'ExecutionDate_ASC' THEN A.ExecutionDate END ASC,
+                        CASE WHEN v_sortOrder = 'ExecutionDate_DESC' THEN A.ExecutionDate END DESC,
+                        CASE WHEN v_sortOrder = 'Status_ASC' THEN A.Status END ASC,
+                        CASE WHEN v_sortOrder = 'Status_DESC' THEN A.Status END DESC,
+                        CASE WHEN v_sortOrder = 'UserName_ASC' THEN A.Executedby END ASC,
+                        CASE WHEN v_sortOrder = 'UserName_DESC' THEN A.Executedby END DESC,
+                        CASE WHEN v_sortOrder = 'RejectedRemark_ASC' THEN A.RejectedRemark END ASC,
+                        CASE WHEN v_sortOrder = 'RejectedRemark_DESC' THEN A.RejectedRemark END DESC
+                ) AS RwNumber
+            FROM (
+                SELECT 
+                    p.paymentstrackingid as Id,
+                    CAST(ad.AccountNumber AS VARCHAR2(50)) AS DebitAccountNumber, 
+                    CAST(ad.AccountName AS VARCHAR2(200)) AS DebitAccountName,
+                    CAST(pm.AccountNumber AS VARCHAR2(50)) AS CreditAccountNumber,
+                    CAST(pm.PayeeName AS VARCHAR2(200)) AS CreditAccountName,
+                    CAST(p.RefNumber AS VARCHAR2(50)) AS RefNo,      
+                    CAST(tq.transactionmode AS VARCHAR2(50)) as SturctureTypeName,
+                    p.Amount,
+                    p.tds as tds,
+                    CAST(u.FIRSTNAME || ' ' || u.LASTNAME AS VARCHAR2(200)) as Executedby,
+                    CAST(p.comments AS VARCHAR2(500)) as Comments,
+                    CAST(p.status AS VARCHAR2(50)) as Status,
+                    CAST(tq.PAYMENTSTATUS AS VARCHAR2(50)) Transactionstatus,
+                    p.createddate as ExecutionDate,
+                    CAST(ad.ulbname AS VARCHAR2(100)) as ULB,
+                    p.approvedRejected,
+                    CAST(tq.step AS VARCHAR2(50)) as Step,
+                    CAST(p.rejectionremark AS VARCHAR2(500)) as RejectedRemark,
+                    CAST(tq.utrnum AS VARCHAR2(50)) as UtrNum
+                FROM PaymentsTracking P
+                INNER JOIN UserMaster u ON u.UserId = p.UserId
+                INNER JOIN AccountMaster ad ON ad.AccountId = p.DebitAccountId
+                INNER JOIN PayeeMaster pm ON pm.payeeid = p.payeeid
+                LEFT JOIN transactionQueue tq on tq.refno = p.RefNumber
+                WHERE nvl(approvedRejected,0) = 1
+                AND ad.ulbname = NVL(v_ulbName, ulbname)
+                AND ad.accountId = CASE WHEN v_ULB > 0 THEN v_ULB ELSE ad.accountId END
+                AND (v_DebitAccountNumber IS NULL OR ad.AccountNumber = v_DebitAccountNumber)
+                AND (v_CreditAccountNumber IS NULL OR pm.AccountNumber = v_CreditAccountNumber)
+                AND (v_Status IS NULL OR UPPER(p.status) = UPPER(v_Status))
+                AND (
+                    v_FromDate IS NULL 
+                    OR (
+                        TO_DATE(p.createddate, 'DD-MM-YY') BETWEEN TO_DATE(v_FromDate, 'DD-MM-YY') 
+                        AND TO_DATE(NVL(v_ToDate, p.createddate), 'DD-MM-YY')
+                    )
+                )
+                AND (v_isAdjustMent = 0 OR (tq.transactionmode = 'NEFT' AND p.status NOT IN ('Successful','Failed','Pending')))
+            ) A
+        ) B
+        WHERE RwNumber BETWEEN ((v_pageNo - 1) * v_pageSize + 1) AND (v_pageNo * v_pageSize);
+
+    ELSIF v_ReportType = 'ADMIN' THEN
+        OPEN v_cursor FOR
+        SELECT B.*
+        FROM (
+            SELECT A.*, COUNT(*) OVER () AS TotalCount,
+                ROW_NUMBER() OVER (
+                    ORDER BY  
+                        CASE WHEN v_sortOrder = 'DebitAccountNumber_ASC' THEN A.DebitAccountNumber END ASC,
+                        CASE WHEN v_sortOrder = 'DebitAccountNumber_DESC' THEN A.DebitAccountNumber END DESC,
+                        CASE WHEN v_sortOrder = 'DebitAccountName_ASC' THEN A.DebitAccountName END ASC,
+                        CASE WHEN v_sortOrder = 'DebitAccountName_DESC' THEN A.DebitAccountName END DESC,
+                        CASE WHEN v_sortOrder = 'CreditAccountNumber_ASC' THEN A.CreditAccountNumber END ASC,
+                        CASE WHEN v_sortOrder = 'CreditAccountNumber_DESC' THEN A.CreditAccountNumber END DESC,
+                        CASE WHEN v_sortOrder = 'CreditAccountName_ASC' THEN A.CreditAccountName END ASC,
+                        CASE WHEN v_sortOrder = 'CreditAccountName_DESC' THEN A.CreditAccountName END DESC,
+                        CASE WHEN v_sortOrder = 'Amount_ASC' THEN A.Amount END ASC,
+                        CASE WHEN v_sortOrder = 'Amount_DESC' THEN A.Amount END DESC,
+                        CASE WHEN v_sortOrder = 'TDS_ASC' THEN A.tds END ASC,
+                        CASE WHEN v_sortOrder = 'TDS_DESC' THEN A.tds END DESC,
+                        CASE WHEN v_sortOrder = 'Comments_ASC' THEN A.Comments END ASC,
+                        CASE WHEN v_sortOrder = 'Comments_DESC' THEN A.Comments END DESC,
+                        CASE WHEN v_sortOrder = 'StructureTypeName_ASC' THEN A.SturctureTypeName END ASC,
+                        CASE WHEN v_sortOrder = 'StructureTypeName_DESC' THEN A.SturctureTypeName END DESC,
+                        CASE WHEN v_sortOrder = 'RefNo_ASC' THEN A.RefNo END ASC,
+                        CASE WHEN v_sortOrder = 'RefNo_DESC' THEN A.RefNo END DESC,
+                        CASE WHEN v_sortOrder = 'ExecutionDate_ASC' THEN A.ExecutionDate END ASC,
+                        CASE WHEN v_sortOrder = 'ExecutionDate_DESC' THEN A.ExecutionDate END DESC,
+                        CASE WHEN v_sortOrder = 'Status_ASC' THEN A.Status END ASC,
+                        CASE WHEN v_sortOrder = 'Status_DESC' THEN A.Status END DESC,
+                        CASE WHEN v_sortOrder = 'UserName_ASC' THEN A.Executedby END ASC,
+                        CASE WHEN v_sortOrder = 'UserName_DESC' THEN A.Executedby END DESC,
+                        CASE WHEN v_sortOrder = 'RejectedRemark_ASC' THEN A.RejectedRemark END ASC,
+                        CASE WHEN v_sortOrder = 'RejectedRemark_DESC' THEN A.RejectedRemark END DESC
+                ) AS RwNumber
+            FROM (
+                SELECT DISTINCT
+                    p.adminexpensepaymentid as Id,
+                    CAST(ad.AccountNumber AS VARCHAR2(50)) AS DebitAccountNumber, 
+                    CAST(ad.AccountName AS VARCHAR2(200)) AS DebitAccountName,
+                    CAST(pm.AccountNumber AS VARCHAR2(50)) AS CreditAccountNumber,
+                    CAST(pm.PayeeName AS VARCHAR2(200)) AS CreditAccountName,
+                    CAST(p.RefNumber AS VARCHAR2(50)) AS RefNo,      
+                    CAST(tq.transactionmode AS VARCHAR2(50)) as SturctureTypeName,
+                    p.Amount,
+                    p.tds as tds,
+                    CAST(u.FIRSTNAME || ' ' || u.LASTNAME AS VARCHAR2(200)) as Executedby,
+                    CAST(p.remark AS VARCHAR2(500)) as Comments,
+                    CAST(p.status AS VARCHAR2(50)) as Status,
+                    p.createddate as ExecutionDate,
+                    p.approvedRejected,
+                    CAST(tq.step AS VARCHAR2(50)) as Step,
+                    CAST(p.rejectionremark AS VARCHAR2(500)) as RejectedRemark,
+                    CAST(tq.utrnum AS VARCHAR2(50)) as UtrNum
+                FROM AdminExpensePayment P
+                INNER JOIN UserMaster u ON u.UserId = p.UserId
+                INNER JOIN AccountMaster ad ON ad.AccountId = p.snaaccount
+                INNER JOIN AdminExpensePayeeMaster pm ON pm.adminexpensepayeeid = p.payeeid
+                LEFT JOIN adminexpensetransactionQueue tq on tq.refno = p.RefNumber
+                WHERE nvl(approvedRejected,0) = 1
+                AND ad.accountId = CASE WHEN v_ULB > 0 THEN v_ULB ELSE ad.accountId END
+                AND (v_DebitAccountNumber IS NULL OR ad.AccountNumber = v_DebitAccountNumber)
+                AND (v_CreditAccountNumber IS NULL OR pm.AccountNumber = v_CreditAccountNumber)
+                AND (v_Status IS NULL OR UPPER(p.status) = UPPER(v_Status))
+                AND (
+                    v_FromDate IS NULL 
+                    OR (
+                        TO_DATE(p.createddate, 'DD-MM-YY') BETWEEN TO_DATE(v_FromDate, 'DD-MM-YY') 
+                        AND TO_DATE(NVL(v_ToDate, p.createddate), 'DD-MM-YY')
+                    )
+                )
+                AND (v_isAdjustMent = 0 OR (tq.transactionmode = 'NEFT' AND p.status NOT IN ('Successful','Failed','Pending')))
+            ) A
+        ) B
+        WHERE RwNumber BETWEEN ((v_pageNo - 1) * v_pageSize + 1) AND (v_pageNo * v_pageSize);
+
+    ELSIF v_ReportType = 'AEOIEC' THEN
+        OPEN v_cursor FOR
+        SELECT B.*
+        FROM (
+            SELECT A.*, COUNT(*) OVER () AS TotalCount,
+                ROW_NUMBER() OVER (
+                    ORDER BY  
+                        CASE WHEN v_sortOrder = 'DebitAccountNumber_ASC' THEN A.DebitAccountNumber END ASC,
+                        CASE WHEN v_sortOrder = 'DebitAccountNumber_DESC' THEN A.DebitAccountNumber END DESC,
+                        CASE WHEN v_sortOrder = 'DebitAccountName_ASC' THEN A.DebitAccountName END ASC,
+                        CASE WHEN v_sortOrder = 'DebitAccountName_DESC' THEN A.DebitAccountName END DESC,
+                        CASE WHEN v_sortOrder = 'CreditAccountNumber_ASC' THEN A.CreditAccountNumber END ASC,
+                        CASE WHEN v_sortOrder = 'CreditAccountNumber_DESC' THEN A.CreditAccountNumber END DESC,
+                        CASE WHEN v_sortOrder = 'CreditAccountName_ASC' THEN A.CreditAccountName END ASC,
+                        CASE WHEN v_sortOrder = 'CreditAccountName_DESC' THEN A.CreditAccountName END DESC,
+                        CASE WHEN v_sortOrder = 'PayeeType_ASC' THEN A.PayeeType END ASC,
+                        CASE WHEN v_sortOrder = 'PayeeType_DESC' THEN A.PayeeType END DESC,
+                        CASE WHEN v_sortOrder = 'ULB_ASC' THEN A.ULB END ASC,
+                        CASE WHEN v_sortOrder = 'ULB_DESC' THEN A.ULB END DESC,
+                        CASE WHEN v_sortOrder = 'Amount_ASC' THEN A.Amount END ASC,
+                        CASE WHEN v_sortOrder = 'Amount_DESC' THEN A.Amount END DESC,
+                        CASE WHEN v_sortOrder = 'Comments_ASC' THEN A.Comments END ASC,
+                        CASE WHEN v_sortOrder = 'Comments_DESC' THEN A.Comments END DESC,
+                        CASE WHEN v_sortOrder = 'StructureTypeName_ASC' THEN A.SturctureTypeName END ASC,
+                        CASE WHEN v_sortOrder = 'StructureTypeName_DESC' THEN A.SturctureTypeName END DESC,
+                        CASE WHEN v_sortOrder = 'RefNo_ASC' THEN A.RefNo END ASC,
+                        CASE WHEN v_sortOrder = 'RefNo_DESC' THEN A.RefNo END DESC,
+                        CASE WHEN v_sortOrder = 'ExecutionDate_ASC' THEN A.ExecutionDate END ASC,
+                        CASE WHEN v_sortOrder = 'ExecutionDate_DESC' THEN A.ExecutionDate END DESC,
+                        CASE WHEN v_sortOrder = 'Status_ASC' THEN A.Status END ASC,
+                        CASE WHEN v_sortOrder = 'Status_DESC' THEN A.Status END DESC,
+                        CASE WHEN v_sortOrder = 'UserName_ASC' THEN A.Executedby END ASC,
+                        CASE WHEN v_sortOrder = 'UserName_DESC' THEN A.Executedby END DESC,
+                        CASE WHEN v_sortOrder = 'RejectedRemark_ASC' THEN A.RejectedRemark END ASC,
+                        CASE WHEN v_sortOrder = 'RejectedRemark_DESC' THEN A.RejectedRemark END DESC
+                ) AS RwNumber
+            FROM (
+                SELECT 
+                    p.aeoandiecpaymentid as Id,
+                    CAST(ad.AccountNumber AS VARCHAR2(50)) AS DebitAccountNumber, 
+                    CAST(ad.AccountName AS VARCHAR2(200)) AS DebitAccountName,
+                    CAST(pm.AccountNumber AS VARCHAR2(50)) AS CreditAccountNumber,
+                    CAST(pm.PayeeName AS VARCHAR2(200)) AS CreditAccountName,
+                    CAST(pm.payeeType AS VARCHAR2(50)) as PayeeType,
+                    CAST(p.RefNumber AS VARCHAR2(50)) AS RefNo,      
+                    CAST(tq.transactionmode AS VARCHAR2(50)) as SturctureTypeName,
+                    p.Amount,
+                    CAST(u.FIRSTNAME || ' ' || u.LASTNAME AS VARCHAR2(200)) as Executedby,
+                    CAST(p.remark AS VARCHAR2(500)) as Comments,
+                    CAST(p.status AS VARCHAR2(50)) as Status,
+                    p.createddate as ExecutionDate,
+                    CAST(ad.ulbname AS VARCHAR2(100)) as ULB,
+                    p.approvedRejected,
+                    CAST(tq.step AS VARCHAR2(50)) as Step,
+                    CAST(p.rejectionremark AS VARCHAR2(500)) as RejectedRemark,
+                    p.tds as tds,
+                    CAST(tq.utrnum AS VARCHAR2(50)) as UtrNum
+                FROM AeoAndIecPaymentsTracking P
+                INNER JOIN UserMaster u ON u.UserId = p.UserId
+                INNER JOIN AccountMaster ad ON ad.AccountId = p.ulbaccountid
+                INNER JOIN AeoAndIecPayeeMaster pm ON pm.payeeid = p.configid
+                LEFT JOIN aeoniectransactionQueue tq on tq.refno = p.RefNumber
+                WHERE nvl(approvedRejected,0) = 1
+                AND ad.ulbname = NVL(v_ulbName, ulbname)
+                AND ad.accountId = CASE WHEN v_ULB > 0 THEN v_ULB ELSE ad.accountId END
+                AND (v_DebitAccountNumber IS NULL OR ad.AccountNumber = v_DebitAccountNumber)
+                AND (v_CreditAccountNumber IS NULL OR pm.AccountNumber = v_CreditAccountNumber)
+                AND (v_Status IS NULL OR UPPER(p.status) = UPPER(v_Status))
+                AND (
+                    v_FromDate IS NULL 
+                    OR (
+                        TO_DATE(p.createddate, 'DD-MM-YY') BETWEEN TO_DATE(v_FromDate, 'DD-MM-YY') 
+                        AND TO_DATE(NVL(v_ToDate, p.createddate), 'DD-MM-YY')
+                    )
+                )
+                AND (v_isAdjustMent = 0 OR (tq.transactionmode IN ('NEFT','Fund Trans') AND p.status NOT IN ('Successful','Failed','Pending')))
+            ) A
+        ) B
+        WHERE RwNumber BETWEEN ((v_pageNo - 1) * v_pageSize + 1) AND (v_pageNo * v_pageSize);
+
+    ELSE
+        -- ALL Report Types - Union all three queries
+        OPEN v_cursor FOR
+        SELECT B.*
+        FROM (
+            SELECT A.*, COUNT(*) OVER () AS TotalCount,
+                ROW_NUMBER() OVER (
+                    ORDER BY  
+                        CASE WHEN v_sortOrder = 'DebitAccountNumber_ASC' THEN A.DebitAccountNumber END ASC,
+                        CASE WHEN v_sortOrder = 'DebitAccountNumber_DESC' THEN A.DebitAccountNumber END DESC,
+                        CASE WHEN v_sortOrder = 'DebitAccountName_ASC' THEN A.DebitAccountName END ASC,
+                        CASE WHEN v_sortOrder = 'DebitAccountName_DESC' THEN A.DebitAccountName END DESC,
+                        CASE WHEN v_sortOrder = 'CreditAccountNumber_ASC' THEN A.CreditAccountNumber END ASC,
+                        CASE WHEN v_sortOrder = 'CreditAccountNumber_DESC' THEN A.CreditAccountNumber END DESC,
+                        CASE WHEN v_sortOrder = 'CreditAccountName_ASC' THEN A.CreditAccountName END ASC,
+                        CASE WHEN v_sortOrder = 'CreditAccountName_DESC' THEN A.CreditAccountName END DESC,
+                        CASE WHEN v_sortOrder = 'ULB_ASC' THEN A.ULB END ASC,
+                        CASE WHEN v_sortOrder = 'ULB_DESC' THEN A.ULB END DESC,
+                        CASE WHEN v_sortOrder = 'Amount_ASC' THEN A.Amount END ASC,
+                        CASE WHEN v_sortOrder = 'Amount_DESC' THEN A.Amount END DESC,
+                        CASE WHEN v_sortOrder = 'TDS_ASC' THEN A.tds END ASC,
+                        CASE WHEN v_sortOrder = 'TDS_DESC' THEN A.tds END DESC,
+                        CASE WHEN v_sortOrder = 'Comments_ASC' THEN A.Comments END ASC,
+                        CASE WHEN v_sortOrder = 'Comments_DESC' THEN A.Comments END DESC,
+                        CASE WHEN v_sortOrder = 'StructureTypeName_ASC' THEN A.SturctureTypeName END ASC,
+                        CASE WHEN v_sortOrder = 'StructureTypeName_DESC' THEN A.SturctureTypeName END DESC,
+                        CASE WHEN v_sortOrder = 'RefNo_ASC' THEN A.RefNo END ASC,
+                        CASE WHEN v_sortOrder = 'RefNo_DESC' THEN A.RefNo END DESC,
+                        CASE WHEN v_sortOrder = 'ExecutionDate_ASC' THEN A.ExecutionDate END ASC,
+                        CASE WHEN v_sortOrder = 'ExecutionDate_DESC' THEN A.ExecutionDate END DESC,
+                        CASE WHEN v_sortOrder = 'Status_ASC' THEN A.Status END ASC,
+                        CASE WHEN v_sortOrder = 'Status_DESC' THEN A.Status END DESC,
+                        CASE WHEN v_sortOrder = 'UserName_ASC' THEN A.Executedby END ASC,
+                        CASE WHEN v_sortOrder = 'UserName_DESC' THEN A.Executedby END DESC,
+                        CASE WHEN v_sortOrder = 'RejectedRemark_ASC' THEN A.RejectedRemark END ASC,
+                        CASE WHEN v_sortOrder = 'RejectedRemark_DESC' THEN A.RejectedRemark END DESC
+                ) AS RwNumber
+            FROM (
+                -- Payment Reports
+                SELECT 
+                    p.paymentstrackingid as Id,
+                    CAST(ad.AccountNumber AS VARCHAR2(50)) AS DebitAccountNumber, 
+                    CAST(ad.AccountName AS VARCHAR2(200)) AS DebitAccountName,
+                    CAST(pm.AccountNumber AS VARCHAR2(50)) AS CreditAccountNumber,
+                    CAST(pm.PayeeName AS VARCHAR2(200)) AS CreditAccountName,
+                    CAST(NULL AS VARCHAR2(50)) as PayeeType,
+                    CAST(p.RefNumber AS VARCHAR2(50)) AS RefNo,      
+                    CAST(tq.transactionmode AS VARCHAR2(50)) as SturctureTypeName,
+                    p.Amount,
+                    p.tds as tds,
+                    CAST(u.FIRSTNAME || ' ' || u.LASTNAME AS VARCHAR2(200)) as Executedby,
+                    CAST(p.comments AS VARCHAR2(500)) as Comments,
+                    CAST(p.status AS VARCHAR2(50)) as Status,
+                    CAST(tq.PAYMENTSTATUS AS VARCHAR2(50)) Transactionstatus,
+                    p.createddate as ExecutionDate,
+                    CAST(ad.ulbname AS VARCHAR2(100)) as ULB,
+                    p.approvedRejected,
+                    CAST(tq.step AS VARCHAR2(50)) as Step,
+                    CAST(p.rejectionremark AS VARCHAR2(500)) as RejectedRemark,
+                    CAST(tq.utrnum AS VARCHAR2(50)) as UtrNum
+                FROM PaymentsTracking P
+                INNER JOIN UserMaster u ON u.UserId = p.UserId
+                INNER JOIN AccountMaster ad ON ad.AccountId = p.DebitAccountId
+                INNER JOIN PayeeMaster pm ON pm.payeeid = p.payeeid
+                LEFT JOIN transactionQueue tq on tq.refno = p.RefNumber
+                WHERE nvl(approvedRejected,0) = 1
+                AND ad.ulbname = NVL(v_ulbName, ulbname)
+                AND ad.accountId = CASE WHEN v_ULB > 0 THEN v_ULB ELSE ad.accountId END
+                AND (v_DebitAccountNumber IS NULL OR ad.AccountNumber = v_DebitAccountNumber)
+                AND (v_CreditAccountNumber IS NULL OR pm.AccountNumber = v_CreditAccountNumber)
+                AND (v_Status IS NULL OR UPPER(p.status) = UPPER(v_Status))
+                AND (
+                    v_FromDate IS NULL 
+                    OR (
+                        TO_DATE(p.createddate, 'DD-MM-YY') BETWEEN TO_DATE(v_FromDate, 'DD-MM-YY') 
+                        AND TO_DATE(NVL(v_ToDate, p.createddate), 'DD-MM-YY')
+                    )
+                )
+                AND (v_isAdjustMent = 0 OR (tq.transactionmode = 'NEFT' AND p.status NOT IN ('Successful','Failed','Pending')))
+                
+                UNION ALL
+                
+                -- Admin Payment Reports
+                SELECT DISTINCT
+                    p.adminexpensepaymentid as Id,
+                    CAST(ad.AccountNumber AS VARCHAR2(50)) AS DebitAccountNumber, 
+                    CAST(ad.AccountName AS VARCHAR2(200)) AS DebitAccountName,
+                    CAST(pm.AccountNumber AS VARCHAR2(50)) AS CreditAccountNumber,
+                    CAST(pm.PayeeName AS VARCHAR2(200)) AS CreditAccountName,
+                    CAST(NULL AS VARCHAR2(50)) as PayeeType,
+                    CAST(p.RefNumber AS VARCHAR2(50)) AS RefNo,      
+                    CAST(tq.transactionmode AS VARCHAR2(50)) as SturctureTypeName,
+                    p.Amount,
+                    p.tds as tds,
+                    CAST(u.FIRSTNAME || ' ' || u.LASTNAME AS VARCHAR2(200)) as Executedby,
+                    CAST(p.remark AS VARCHAR2(500)) as Comments,
+                    CAST(p.status AS VARCHAR2(50)) as Status,
+                    CAST(NULL AS VARCHAR2(50)) as Transactionstatus,
+                    p.createddate as ExecutionDate,
+                    CAST(NULL AS VARCHAR2(100)) as ULB,
+                    p.approvedRejected,
+                    CAST(tq.step AS VARCHAR2(50)) as Step,
+                    CAST(p.rejectionremark AS VARCHAR2(500)) as RejectedRemark,
+                    CAST(tq.utrnum AS VARCHAR2(50)) as UtrNum
+                FROM AdminExpensePayment P
+                INNER JOIN UserMaster u ON u.UserId = p.UserId
+                INNER JOIN AccountMaster ad ON ad.AccountId = p.snaaccount
+                INNER JOIN AdminExpensePayeeMaster pm ON pm.adminexpensepayeeid = p.payeeid
+                LEFT JOIN adminexpensetransactionQueue tq on tq.refno = p.RefNumber
+                WHERE nvl(approvedRejected,0) = 1
+                AND ad.accountId = CASE WHEN v_ULB > 0 THEN v_ULB ELSE ad.accountId END
+                AND (v_DebitAccountNumber IS NULL OR ad.AccountNumber = v_DebitAccountNumber)
+                AND (v_CreditAccountNumber IS NULL OR pm.AccountNumber = v_CreditAccountNumber)
+                AND (v_Status IS NULL OR UPPER(p.status) = UPPER(v_Status))
+                AND (
+                    v_FromDate IS NULL 
+                    OR (
+                        TO_DATE(p.createddate, 'DD-MM-YY') BETWEEN TO_DATE(v_FromDate, 'DD-MM-YY') 
+                        AND TO_DATE(NVL(v_ToDate, p.createddate), 'DD-MM-YY')
+                    )
+                )
+                AND (v_isAdjustMent = 0 OR (tq.transactionmode = 'NEFT' AND p.status NOT IN ('Successful','Failed','Pending')))
+                
+                UNION ALL
+                
+                -- AEO/IEC Payment Reports
+                SELECT 
+                    p.aeoandiecpaymentid as Id,
+                    CAST(ad.AccountNumber AS VARCHAR2(50)) AS DebitAccountNumber, 
+                    CAST(ad.AccountName AS VARCHAR2(200)) AS DebitAccountName,
+                    CAST(pm.AccountNumber AS VARCHAR2(50)) AS CreditAccountNumber,
+                    CAST(pm.PayeeName AS VARCHAR2(200)) AS CreditAccountName,
+                    CAST(pm.payeeType AS VARCHAR2(50)) as PayeeType,
+                    CAST(p.RefNumber AS VARCHAR2(50)) AS RefNo,      
+                    CAST(tq.transactionmode AS VARCHAR2(50)) as SturctureTypeName,
+                    p.Amount,
+                    p.tds as tds,
+                    CAST(u.FIRSTNAME || ' ' || u.LASTNAME AS VARCHAR2(200)) as Executedby,
+                    CAST(p.remark AS VARCHAR2(500)) as Comments,
+                    CAST(p.status AS VARCHAR2(50)) as Status,
+                    CAST(NULL AS VARCHAR2(50)) as Transactionstatus,
+                    p.createddate as ExecutionDate,
+                    CAST(ad.ulbname AS VARCHAR2(100)) as ULB,
+                    p.approvedRejected,
+                    CAST(tq.step AS VARCHAR2(50)) as Step,
+                    CAST(p.rejectionremark AS VARCHAR2(500)) as RejectedRemark,
+                    CAST(tq.utrnum AS VARCHAR2(50)) as UtrNum
+                FROM AeoAndIecPaymentsTracking P
+                INNER JOIN UserMaster u ON u.UserId = p.UserId
+                INNER JOIN AccountMaster ad ON ad.AccountId = p.ulbaccountid
+                INNER JOIN AeoAndIecPayeeMaster pm ON pm.payeeid = p.configid
+                LEFT JOIN aeoniectransactionQueue tq on tq.refno = p.RefNumber
+                WHERE nvl(approvedRejected,0) = 1
+                AND ad.ulbname = NVL(v_ulbName, ulbname)
+                AND ad.accountId = CASE WHEN v_ULB > 0 THEN v_ULB ELSE ad.accountId END
+                AND (v_DebitAccountNumber IS NULL OR ad.AccountNumber = v_DebitAccountNumber)
+                AND (v_CreditAccountNumber IS NULL OR pm.AccountNumber = v_CreditAccountNumber)
+                AND (v_Status IS NULL OR UPPER(p.status) = UPPER(v_Status))
+                AND (
+                    v_FromDate IS NULL 
+                    OR (
+                        TO_DATE(p.createddate, 'DD-MM-YY') BETWEEN TO_DATE(v_FromDate, 'DD-MM-YY') 
+                        AND TO_DATE(NVL(v_ToDate, p.createddate), 'DD-MM-YY')
+                    )
+                )
+                AND (v_isAdjustMent = 0 OR (tq.transactionmode IN ('NEFT','Fund Trans') AND p.status NOT IN ('Successful','Failed','Pending')))
+            ) A
+        ) B
+        WHERE RwNumber BETWEEN ((v_pageNo - 1) * v_pageSize + 1) AND (v_pageNo * v_pageSize);
+    END IF;
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        -- Log error and re-raise
+        DBMS_OUTPUT.PUT_LINE('Error in ADJUSTMENTSPAYMENTSREPORTS: ' || SQLERRM);
+        RAISE;
+END;
