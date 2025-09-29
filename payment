@@ -1,0 +1,314 @@
+create or replace PROCEDURE "ADDPAYMENTSTRACKING" 
+(
+  p_DebitAccountId number,
+  p_CreditAccountId number,
+  p_CreditAccountNumber varchar2,
+  p_Amount number,
+  p_Comments varchar2,
+  p_StructureId number,
+  p_userId number,
+  p_batchId number,
+  p_Action varchar2,
+  p_paymentsTrackingId number,
+  p_CustomerId number,
+  p_PageNo number default 1,
+  p_PageSize number default 5,
+  p_SortValue varchar2 default null,
+  p_filterSchemeName varchar2 default null,
+  p_filterSubSchemeName varchar2 default null,
+  p_filterWorkOrder varchar2 default null,
+  p_filterAmount varchar2 default null,
+  p_filterComments varchar2 default null,
+  p_filterStatus varchar2 default null,
+  p_Ids clob default null,
+  p_addhoqCrditAcIFSC varchar2 default null,
+  p_addhoqCrditAcName varchar2 default null,
+  p_addhoqCrditAcCode varchar2 default null,
+  p_addhoqCrditAcAddress varchar2 default null,
+  p_addhoqCrditMobile varchar2 default null,
+  p_addhoqCrditAcEmailID varchar2 default null,
+  p_DebitIsNotionalPoolAccount varchar2 default null,
+  p_DebitMappedAccountId varchar2 default null,
+  p_CreditIsNotionalPoolAccount varchar2 default null,
+  p_CreditMappedAccountId varchar2 default null,
+  p_CanUserCreate number default 1,
+  p_SCHEMEID number,
+  p_SUBSCHEMEID number,
+  p_WORKORDERID number,
+  p_PAYEETYPE number,
+  p_PAYEEID number,
+  p_INVOICEID varchar2,
+  p_INVOICEFILE varchar2,
+  p_TDS number,
+  p_IT number,
+  p_IGST number,
+  p_CGST number,
+  p_SGST number,
+  p_SECDEP number,
+  p_MobileAuthentication number,
+  p_TotalNoOfRecords out number,
+  
+  p_LastInsertedIdentity out number
+)
+AS
+   v_cursor SYS_REFCURSOR;
+   v_ischecker int;
+   v_usertype NUMBER(2);
+   v_ulbaccountidId number(18);
+     v_ulbIds varchar(1000);
+BEGIN
+  select accountid into v_ulbaccountidId from accountmaster where (','||users||',') like '%,'||to_char(p_userId)||',%' and rownum = 1;
+  select 
+    users into v_ulbIds
+    from accountmaster
+    where ','||users||',' like '%,'||to_char(p_userId)||',%' and rownum = 1;
+  p_LastInsertedIdentity := 0;
+
+  if nvl(p_DebitAccountId,-1) not in (-1,0) and p_Action = 'add' and p_CanUserCreate = 1
+  then
+    insert into PaymentsTracking(
+      DebitAccountId,
+      CreditAccountId,
+      CreditAccountNumber,
+      Amount,
+      Comments,
+      StructureId,
+      Status,
+      isExecuted,
+      userId,
+      createdDate,
+      CustomerId,
+      addhoqCrditAcIFSC,
+      addhoqCrditAcName,
+      addhoqCrditAcCode,
+      addhoqCrditAcAddress,
+      ADDHOQCRDITMOBILE,
+      CREDITACHEMAILID,
+      DebitIsNotionalPoolAccount,
+      DebitMappedAccountId,
+      CreditIsNotionalPoolAccount,
+      CreditMappedAccountId,
+      BENEFICIARYID,
+      AppName,SCHEMEID,
+SUBSCHEMEID,
+WORKORDERID,
+PAYEETYPE,
+PAYEEID,
+INVOICEID,
+INVOICEFILE,
+TDS,
+IT,
+CGST,
+SGST,
+IGST,
+SECDEP
+    )
+    values
+    (
+      p_DebitAccountId,
+      p_CreditAccountId,
+      case when instr(p_CreditAccountNumber,' ')>0 then substr(p_CreditAccountNumber,0,instr(p_CreditAccountNumber,' ')-1) else p_CreditAccountNumber end,
+      --p_CreditAccountNumber,
+      p_Amount,
+      p_Comments,
+      p_StructureId,
+      'Pending Approval',
+      0,
+      p_userId,
+      sysdate,
+      p_CustomerId,
+      p_addhoqCrditAcIFSC,
+      p_addhoqCrditAcName,
+      p_addhoqCrditAcCode,
+      p_addhoqCrditAcAddress,
+      p_addhoqCrditMobile,
+      p_addhoqCrditAcEmailID,
+      p_DebitIsNotionalPoolAccount,
+      p_DebitMappedAccountId,
+      p_CreditIsNotionalPoolAccount,
+      p_CreditMappedAccountId,
+
+      case when p_StructureId=1 then null else p_CreditAccountId end,
+      'GPMS',
+        p_SCHEMEID,
+        p_SUBSCHEMEID,
+        p_WORKORDERID,
+        p_PAYEETYPE,
+        p_PAYEEID,
+        p_INVOICEID,
+        p_INVOICEFILE,
+        p_TDS,
+        p_IT,
+        p_CGST,
+        p_SGST,
+        p_IGST,
+        p_SECDEP
+    );
+
+    select max(paymentstrackingid) into p_LastInsertedIdentity from paymentstracking;
+  end if;
+
+  if p_Action = 'delete'
+  then
+    delete from paymentsTracking where paymentsTrackingId = p_paymentsTrackingId;
+  end if;
+
+  SELECT max(checker) into v_ischecker FROM UserRole ur
+  JOIN RolesModule rm   ON ur.roleID = rm.roleID
+  JOIN UserMaster um   ON um.UserId = p_userId
+  WHERE  ur.userId = p_userId
+  AND moduleID = 32 group by moduleID , um.UserType;
+
+  if p_Ids is not null then
+    insert into tmpSingleCol(col1)
+    with t as (select p_Ids str  from dual)   select
+    regexp_substr (str, '[^,]+', 1, level) split_values  from t
+    connect by level <= (select length(replace (str, ',', null)) from t);
+  end if;
+  select u.USERTYPE into v_usertype from USERMASTER u where u.USERID=p_userId;
+  delete from TMPOPTPAYMENTS_TMP where ReqID=p_userId;
+  insert into
+  TMPOPTPAYMENTS_TMP
+  (rn,PaymentsTrackingId,DebitAccountId,CreditAccountId,DebitAccountNumber,CreditAccountNumber,DebitACHName,CreditACHName,DebitACHMobile,DebitIFSC,CreditACHMobile
+  ,CreditIFSC,DebitBankName,CreditBankName,Comments,StructureId,StructureTypeName,Amount,isExecuted,refNumber,status,userId,batchId,MMID
+  ,approvedBy,approvedDate,reviewedBy,reviewedDate,rejectedBy,rejectedDate,CREDITACHCODE,CRDEITACHADDRESS
+  ,DebitIsNotionalPoolAccount,DebitMappedAccountId,CreditIsNotionalPoolAccount,CreditMappedAccountId,DebitNotionalAccountNumber, 
+  scheme,subscheme, workorder,PayeeTYpe,MOBILEAUTHENTICATION,tds,IT,CGST,SGST,IGST,SECDEP,JOBCARDNUMBER,RejectionRemark,EXEUTIONDATE,ReqID)
+  select
+  Row_Number() over (Order by
+         p.PaymentsTrackingId desc
+--      CASE WHEN p_SortValue = 'DebitAccountNumber_ASC' THEN ad.AccountNumber end asc,
+--      CASE WHEN p_SortValue = 'DebitAccountNumber_DESC' THEN ad.AccountNumber end desc--,
+--      CASE WHEN p_SortValue = 'CreditAccountNumber_ASC' THEN nvl(pm.AccountNumber,p.CreditAccountNumber) end asc,
+--      CASE WHEN p_SortValue = 'CreditAccountNumber_DESC' THEN nvl(pm.AccountNumber,p.CreditAccountNumber) end desc,
+--      CASE WHEN p_SortValue = 'Amount_ASC' THEN p.Amount end asc,
+--      CASE WHEN p_SortValue = 'Amount_DESC' THEN p.Amount end desc,
+--      CASE WHEN p_SortValue = 'StructureTypeName_ASC' THEN s.strname end asc,
+--      CASE WHEN p_SortValue = 'StructureTypeName_DESC' THEN s.strname end desc,
+--      CASE WHEN p_SortValue = 'Comments_ASC' THEN p.Comments end asc,
+--      CASE WHEN p_SortValue = 'Comments_DESC' THEN p.Comments end desc,
+--      CASE WHEN p_SortValue = 'Status_ASC' THEN p.status end asc,
+--      CASE WHEN p_SortValue = 'Status_DESC' THEN p.status end desc,
+--      CASE WHEN p_SortValue = 'RefNo_ASC' THEN nvl(p.refNumber,' ') end asc,
+--      CASE WHEN p_SortValue = 'RefNo_DESC' THEN nvl(p.refNumber,' ') end desc,
+--      CASE WHEN nvl(p_SortValue,'%') like '%' then p.PaymentsTrackingId end desc
+    ) rn,
+    p.PaymentsTrackingId,
+  p.DebitAccountId,
+  nvl(p.CreditAccountId,0) CreditAccountId,
+  ad.AccountNumber DebitAccountNumber,
+  nvl(pm.AccountNumber,p.CreditAccountNumber) CreditAccountNumber,
+  ad.accountname DebitACHName,
+  substr(nvl(pm.payeename,nvl(p.addhoqCrditAcName,pm.payeename)),0,500) CreditACHName,
+  ad.mobilenumber DebitACHMobile,
+  bd.ifsccode DebitIFSC,
+  nvl(p.ADDHOQCRDITMOBILE,pm.MOBILENUMBER) CreditACHMobile,
+  nvl(p.addhoqCrditAcIFSC,pm.IFSCCODE) CreditIFSC,
+  bd.bankname DebitBankName,
+  nvl(pm.bankname,case when p.addhoqCrditAcIFSC is null then null when p.addhoqCrditAcIFSC like '%BDBL%' then 'Bandhan BANK' else 'Other' end) CreditBankName,
+  p.Comments,
+  p.StructureId,
+  s.strname StructureTypeName,
+  p.Amount,
+  p.isExecuted,
+  nvl(p.refNumber,' ') refNumber,
+  p.status,
+  p.userId,
+  nvl(p.batchId,0) batchId,
+
+  null MMID,
+
+  null,null,null,null,null,null,
+  p.ADDHOQCRDITACCODE CREDITACHCODE,
+  p.ADDHOQCRDITACADDRESS CRDEITACHADDRESS,
+
+  p.DebitIsNotionalPoolAccount,
+  p.DebitMappedAccountId,
+  p.CreditIsNotionalPoolAccount,
+  p.CreditMappedAccountId,
+  nd.AccountNumber DebitNotionalAccountNumber,
+   sd.schemename as scheme,
+  ssd.headcomponent as subscheme,
+    wo.workordernumber as workorder, 
+  Case When p.PAYEETYPE = '1' THEN 'Vendor' 
+       When p.PAYEETYPE = '2' THEN 'Beneficiary' 
+       When p.PAYEETYPE = '3' THEN 'SHG' 
+     End,
+ p.MOBILEAUTHENTICATION,
+ nvl(p.tds,0) tds,
+ nvl(p.it,0) it,
+ nvl(p.cgst,0) cgst,
+ nvl(p.sgst,0) sgst,
+ nvl(p.igst,0) igst,
+ nvl(p.secdep,0) secdep,
+ pm.jobCardNumber,
+ p.RejectionRemark,
+ p.CREATEDDATE,p_userId
+   from
+  (
+    select * from paymentstracking where status != 'S' and status != 'Successful' and nvl(batchid,0) = nvl(p_batchId,0) and fileid is null
+    and --rownum < 5000 and
+    (
+      case
+        when p_Action = 'Execute' and nvl(paymentstracking.status,'$') = 'Approved' then 1
+        when p_Action != 'Execute' then 1
+        else 0
+      end
+    ) = 1
+    and
+    (
+        p_Ids like '%AllChecked%' and not exists (select col1 from tmpSingleCol where col1 = to_char(PaymentsTrackingId))
+            or
+        p_Ids like '%AllUnchecked%' and exists (select col1 from tmpSingleCol where col1 = to_char(PaymentsTrackingId))
+            or
+        p_Ids is null
+    )
+
+  ) p
+  inner join accountmaster ad on ((ad.accountId = p.DebitAccountId ))
+  inner join branchmaster bd on bd.branchid = ad.branchid
+  inner join structortype s on s.strid = 2
+ -- inner join customermaster c on c.custPkId = p.CustomerId
+  --inner join UserCustomer uc ON UC.ucCustomerId = c.CustPKId AND UC.ucUserId = p_Userid
+ -- INNER join UserAccountMapping ua on ua.CUSTOMERID = c.CUSTPKID and  ua.ACCOUNTID = ad.ACCOUNTID and ua.USERID=p_Userid
+  inner join usermaster u on u.userid = p_userId
+  --left join accountmaster ac on ((nvl(to_char(p.CreditAccountId),to_char(p.creditaccountnumber)) = (case when p.CreditAccountId is null then to_char(ac.accountnumber) else to_char(ac.accountId) end) and p.CreditMappedAccountId = 0) or (ac.accountId = p.CreditMappedAccountId))
+--  left join branchmaster bc on bc.branchid = ac.branchid
+  left join payeemaster pm on pm.accountnumber = p.CreditAccountNumber and pm.reviewstatus <> 8 and pm.createdby in (select item from split(v_ulbIds,','))
+  left join accountmaster nd on nd.accountid = p.DebitAccountId
+  left join schemehead sd on sd.SCHEMEHEADID = p.SCHEMEID 
+  left join LIMITHEADCOMPONENT ssd on ssd.limitheadcomponentid=p.SUBSCHEMEID
+  left join workordermaster wo on wo.workorderid= p.WORKORDERID
+   where p.DebitAccountId = v_ulbaccountidId
+  and (nvl(approvedRejected,0) = 0 or p.status = 'Approved')
+  and lower(sd.schemename) like '%'||lower(p_filterSchemeName)||'%'
+  and lower(ssd.headcomponent) like '%'||lower(p_filterSubSchemeName)||'%'
+  and lower(wo.workordernumber) like '%'||lower(p_filterWorkOrder)||'%'
+  and to_char(p.Amount) like '%'||lower(p_filterAmount)||'%'
+  and lower(nvl(p.Comments,'%')) like '%'||lower(p_filterComments)||'%'
+  and lower(p.status) like '%'||lower(p_filterStatus)||'%'
+  and (((nvl(p_MobileAuthentication,0) = 0) and nvl(approvedRejected,0) != 1) or 
+  (nvl(p.MobileAuthentication,0) = nvl(p_MobileAuthentication,1)
+   and nvl(approvedRejected,0) = case when p_Action = 'Execute' then 1 else 0 end and p.refnumber =' '));
+
+
+
+  --and ((nvl(p_MobileAuthentication,0) = 0) or (nvl(p.MobileAuthentication,0) = nvl(p_MobileAuthentication,1))) and nvl(approvedRejected,0) != 1;
+  update TMPOPTPAYMENTS_TMP set tmpstatus = 'P' where
+    (
+      (p_Ids is null and ReqID=p_userId and  rn Between ((p_PageNo-1)*p_PageSize +1) AND (p_PageNo * p_PageSize))
+      or
+      (p_Ids is not null)
+    );
+
+  select count(1) into p_TotalNoOfRecords from TMPOPTPAYMENTS_TMP where  ReqID=p_userId;
+
+  open v_cursor for
+  select TMPOPTPAYMENTS_TMP.*,getWorkflowStatusUserIds('Payments',paymentstrackingid,p_userId,customerId) actionuserids from TMPOPTPAYMENTS_TMP
+  where tmpstatus = 'P' and ReqID=p_userId;
+
+  delete from tmpSingleCol;
+
+
+  DBMS_SQL.RETURN_RESULT(v_cursor);
+END;
