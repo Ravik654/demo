@@ -1,0 +1,230 @@
+sp changes 
+
+=========================================================
+create or replace PROCEDURE "GETWORKORDERLIST" 
+(
+  v_WorkOrderType VARCHAR Default Null,
+  v_SchemeId VARCHAR,
+  v_SubSchemeId VARCHAR,
+  v_UserId number,
+  v_cursor out SYS_REFCURSOR
+)
+IS
+v_ulbname varchar2(100);
+v_shgreserve number;
+BEGIN
+
+  select shgreserve into v_shgreserve from Admin_Config_Master;
+  --select ulbname into v_ulbname from accountmaster where (','||users||',') like '%'||to_char(v_userId)||'%' and rownum = 1;
+  select ulbname into v_ulbname from usermaster um
+  JOIN ulbmaster ub 
+  ON ub.ID = um.ULBID
+  where userid = v_userId;
+  
+  update WorkOrdermaster WOM set isclosed = 0 where AMOUNT > NVL((select sum(p.amount) from paymentstracking p where p.workorderid = WOM.workorderid and status not in ('Rejected','Failed')),0);
+  update WorkOrdermaster WOM set isclosed = 1 where AMOUNT <= NVL((select sum(p.amount) from paymentstracking p where p.workorderid = WOM.workorderid and status not in ('Rejected','Failed')),0);
+
+  OPEN  v_cursor FOR 
+  Select WOM.WORKORDERID ,
+  WOM.WORKORDERNUMBER,
+  WOM.AMOUNT ,
+  WOM.ULBID ULBNAME,
+  WOM.isshgapplicable ,
+  (select sum(nvl(p.amount,0)+nvl(p.tds,0)) from paymentstracking p where p.workorderid = WOM.workorderid and status not in ('Rejected','Failed')) WoUtilized,  
+  nvl(((nvl(nvl(WOM.amount,0),0)*((nvl(v_shgreserve,100))/100)) - nvl((select sum(p.amount) from paymentstracking p where p.workorderid = WOM.WORKORDERID and p.payeetype = 3 and nvl(status,'_') not in ('Rejected','Failed')),0)),0) SHGReserve
+  from WorkOrdermaster WOM
+ 
+  Where 
+--  nvl(v_ulbname,WOM.ULB) = WOM.ULB
+--  and
+  SCHEMEID = v_SchemeId 
+  AND SUBSCHEMEID = v_SubSchemeId 
+  AND wom.isshgapplicable  = (case v_WorkOrderType when '0' then 0 when '1' then wom.isshgapplicable else 1 end)
+  AND nvl(isclosed,0) != 1
+  AND wom.workorderstatus = 1;
+END;
+
+
+==========================================================
+
+
+
+
+create or replace PROCEDURE "GETEDITEDWARDBYID" 
+(
+  v_WardId IN NUMBER,
+  v_cursor out SYS_REFCURSOR
+)
+AS
+   v_reviewStatus NUMBER(10,0);
+BEGIN
+
+   BEGIN
+   SELECT ReviewStatus INTO v_reviewStatus  FROM WardMaster WHERE  WardId = v_WardId AND reviewstatus IN ( 1,4,7 );
+
+   EXCEPTION
+      WHEN NO_DATA_FOUND THEN
+        v_reviewStatus := NULL;
+    END;
+
+   IF ( v_reviewStatus = 1 OR v_reviewStatus = 4 OR v_reviewStatus = 7 ) THEN
+   BEGIN
+      OPEN  v_cursor FOR
+          SELECT bme.EDITEDWARDID ,
+bme.WARDID ,
+bme.WARDNUMBER ,
+bme.WARDNAME ,
+bme.ULBId ULB,
+bme.ISDELETE ,
+bme.WARDMASTERSTATUS ,
+bme.REVIEWSTATUS ,
+bme.CREATEDBY ,
+bme.CREATEDDATE ,
+bme.UPDATEDBY ,
+bme.UPDATEDDATE ,
+bme.ISLASTAPPROVED ,
+bme.ULBID ,
+bme.CHILDULBID, AC.ULBNAME  FROM WardMasterEdited bme
+          JOIN ulbmaster AC on AC.id = bme.ULBid WHERE WardId = v_WardId;
+
+   END;
+   ELSE
+   BEGIN
+      OPEN  v_cursor FOR
+     SELECT bm.*, AC.ULBNAME FROM WardMaster bm
+       JOIN ulbmaster AC on AC.id = bm.ULBid  WHERE WardId = v_WardId;
+   END;
+   END IF;
+END;
+
+
+===============================================================================
+
+create or replace PROCEDURE "AEOANDIECPAYMENTSTRACKINGINSERTIMPORTDETAILS" 
+(
+v_FileName IN VARCHAR2,                            
+v_ImportedBy IN NUMBER,
+v_originalFileName in VARCHAR2,
+v_masterName IN VARCHAR2,
+v_ULBAccountId IN VARCHAR2,
+v_ImportID OUT SYS_REFCURSOR,
+
+v_downloadFolderPath IN VARCHAR2 default null,
+v_CustomerId IN NUMBER default null,
+v_BillId IN NUMBER default null
+)
+AS 
+  v_CurrentId NUMBER; 
+  v_moduleId NUMBER;
+  v_ulbid NUMBER;
+BEGIN              
+     select ulbid  into v_ulbid from usermaster where userid = v_ImportedBy;
+  
+     INSERT INTO importaeoandiecpaymentstrackingdetails (FileName,ImportedBy,createdDate,UpdatedDate,STATUS,FAILUREDETAIL,TotalRecords,
+     originalfilename,mastername,customerid, DOWNLOADFOLDERPATH, BILLID, DUPLICATEINFILE, DUPLICATEINDATABASE,APROVALSTATUS,ULBACCOUNTID,ULBID)              
+     VALUES( v_FileName , v_ImportedBy , SYSDATE , SYSDATE,0,' ',0,v_originalFileName,v_masterName,v_CustomerId, v_downloadFolderPath,
+     v_BillId, 0, 0,case when v_masterName = 'FileUpload' then 'Pending Approval' else 'Approved' end,v_ULBAccountId ,v_ulbid)RETURNING importid INTO v_CurrentId;
+      OPEN  v_ImportID FOR
+     SELECT v_CurrentId currentId from dual;
+     --v_ImportID := v_CurrentId;
+
+    if v_masterName = 'FileUpload' then
+      insert into workflow(workflowModuleId,workflowModulePrimaryKey,workflowConfigId,approvedBy,approveDate,rejectedBy,rejectedDate)
+      select wm.workflowmoduleid,twar.importid,wc.workflowConfigId
+      ,null,null,null,null
+      from workflowConfig wc
+      inner join workflowModule wm on wm.workflowmoduleid = wc.workflowmoduleid and wm.modulename = 'FileUpload'
+      inner join importdetails twar on importid = v_CurrentId
+      inner join usermaster u on u.userid = twar.ImportedBy
+      inner join userrole ur on ur.userid = u.userid
+      inner join roles r on r.roleid = ur.roleid
+      where workFlowStageNumber = 1
+      and wc.customerId = twar.customerId
+      and replace(replace(workflowParamaters,'roleName:',','),']',',') || ',' like '%,' || r.rolename || ',%';
+
+      select workflowmoduleid into v_moduleId from workflowmodule where modulename = 'FileUpload';
+
+      update importaeoandiecpaymentstrackingdetails set aprovalstatus = (select wcn.workFlowStageName from workflow w
+      inner join workflowModule wm on wm.workflowmoduleid = w.workflowmoduleid and wm.modulename = 'FileUpload'
+      inner join importdetails twar  on twar.importid = w.workflowModulePrimaryKey and importid = v_CurrentId
+      inner join workflowConfig wc on wc.workflowModuleId = w.workflowModuleId and wc.customerId = twar.customerId and wc.workflowConfigId = w.workflowConfigId
+      inner join workflowConfig wcn on wcn.workflowModuleId = w.workflowModuleId and wcn.customerId = twar.customerId and wcn.workFlowStageNumber = (nvl(wc.workFlowStageNumber,0) + 1)) 
+      where importid = v_CurrentId;
+    end if;
+END;
+
+
+==============================================================================
+
+create or replace PROCEDURE "UPDATEAEOIECIMPORTDETAILS" (
+p_status varchar,
+p_importid number,
+p_approvereject varchar,
+p_mobileAuthentication number,
+p_rejectionRemark varchar,
+p_UserId number,
+p_ApprovedStageCompleted number
+)
+as
+  v_historyId number;
+  v_ulbaccountid number(18);
+  v_userId number(18);
+  v_limitlogidaoe number(18);
+  v_lastbalanceaoe number(18,4);
+  v_limitlogidiec number(18);
+  v_lastbalanceiec number(18,4);
+begin
+  select historyid into v_historyId from importaeoandiecpaymentstrackingdetails where importid = p_importid;
+  update importaeoandiecpaymentstrackingdetails set RejectionRemark = p_rejectionRemark, aprovalstatus = p_status,updatedby=p_UserId,updateddate=sysdate where importid = p_importid;
+  update AEOANDIECPAYMENTSTRACKING set RejectionRemark = p_rejectionRemark, status= p_status,approvedRejected = p_ApprovedStageCompleted,updatedby=p_UserId,updateddate=sysdate where fileid = p_importId;
+  update tableuploaddata set approvalstatus = p_status where fileid = v_historyId;
+
+  --if p_mobileAuthentication =1 then
+  -- update importaeoandiecpaymentstrackingdetails set mobileauthentication = 0   where importid = p_importid;
+  --end if; 
+
+  update AEOANDIECPAYMENTSTRACKING set status = 'Rejected' ,approvedRejected = 1 where nvl(isrejectedinfile,0) = 1 and fileid = p_importid;
+
+
+  if p_approvereject = 'R' then
+
+     update AEOANDIECPAYMENTSTRACKING set status = 'Rejected',approvedRejected = 1 where fileid = p_importid;
+    update importaeoandiecpaymentstrackingdetails set aprovalstatus = 'Rejected' where importid = p_importid;  
+
+    select ULBACCOUNTID,importedby into v_ulbaccountid,v_userId from importaeoandiecpaymentstrackingdetails where importid = p_importid;
+
+    select max(llc.limiticeid) into v_limitlogidiec
+            from LIMITLOGICE llc
+            where llc.ulbaccountid = v_ulbaccountid;
+
+     select max(llc.limitanceid) into v_limitlogidaoe
+            from LIMITLOGANCE llc
+            where llc.ulbaccountid = v_ulbaccountid;
+
+    select nvl(balancelimit,0) into v_lastbalanceiec from LIMITLOGICE where limiticeid = v_limitlogidiec;
+    select nvl(balancelimit,0) into v_lastbalanceaoe from LIMITLOGANCE where limitanceid = v_limitlogidaoe;
+
+    update LIMITLOGICE set islatrecord = 0 where ulbaccountid = v_ulbaccountid;
+    update LIMITLOGANCE set islatrecord = 0 where ulbaccountid = v_ulbaccountid;
+
+    insert into LIMITLOGICE(limitid,ulbaccountid,ulbid,transactionmode,allocatedlimit, balancelimit,islatrecord,createdby, createddate,logsource)
+    select AEOANDIECPAYMENTID,v_ulbaccountid,ulbid,'Credit',(nvl(AMOUNT,0)+nvl(it,0)+nvl(cgst,0)+nvl(sgst,0)+nvl(igst,0)+nvl(secdep,0)),0,0,v_userId,sysdate,'IEC Payments'
+    from AEOANDIECPAYMENTSTRACKING where configtype = 2 and  nvl(isrejectedinfile,0) = 0 and fileid = p_importid ;
+
+    insert into LIMITLOGANCE(limitid,ulbaccountid,ulbid,transactionmode,allocatedlimit, balancelimit,islatrecord,createdby, createddate,logsource)
+    select AEOANDIECPAYMENTID,v_ulbaccountid,ulbid,'Credit',(nvl(AMOUNT,0)+nvl(it,0)+nvl(cgst,0)+nvl(sgst,0)+nvl(igst,0)+nvl(secdep,0)),0,0,v_userId,sysdate,'AOE Payments'
+    from AEOANDIECPAYMENTSTRACKING where configtype = 1 and   nvl(isrejectedinfile,0) = 0 and fileid = p_importid;
+
+    update LIMITLOGICE set islatrecord = 1,balancelimit =  (nvl(v_lastbalanceiec,0)+ nvl((select sum((nvl(AMOUNT,0)+nvl(it,0)+nvl(cgst,0)+nvl(sgst,0)+nvl(igst,0)+nvl(secdep,0))) from AEOANDIECPAYMENTSTRACKING where configtype = 2 and nvl(isrejectedinfile,0) = 0 and fileid = p_importid),0)) where LIMITICEID = (select max(LIMITICEID) from LIMITLOGICE where ulbaccountid = v_ulbaccountid and createdby = v_userId);
+    update LIMITLOGANCE set islatrecord = 1,balancelimit = (nvl(v_lastbalanceaoe,0) + nvl((select sum((nvl(AMOUNT,0)+nvl(it,0)+nvl(cgst,0)+nvl(sgst,0)+nvl(igst,0)+nvl(secdep,0))) from AEOANDIECPAYMENTSTRACKING where configtype = 1 and nvl(isrejectedinfile,0) = 0 and fileid = p_importid),0)) where LIMITANCEID = (select max(LIMITANCEID) from LIMITLOGANCE where ulbaccountid = v_ulbaccountid and createdby = v_userId);
+
+   end if;
+end;
+
+
+===============================================================================
+
+
+
+
+======================================================================
