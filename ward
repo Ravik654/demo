@@ -1,1 +1,20 @@
+it('should call handleAPIError when POST fails', async () => {
+  const patches: Operation[] = [
+    { op: 'replace', path: '/attendance', value: 'true' }
+  ];
+
+  const url = `${baseUrl}/registrations/11`;
+
+  // Mock axios to throw error
+  mockAxios.onPost(url).reply(500, { message: 'Internal Error' });
+
+  // Spy on error handler
+  const errorSpy = jest
+    .spyOn(lmsService as any, 'handleAPIError')
+    .mockImplementation(() => {});
+
+  await lmsService.updateRegistration('11', patches, 'D0623');
+
+  expect(errorSpy).toHaveBeenCalledTimes(1);
+});
 
