@@ -1,111 +1,1058 @@
-cdescribe('addAgentToEvent error handling', () => {
-  let httpservice: jest.Mocked<HttpService>;
-  let service: YourServiceClass; // Replace with your actual service class name
-  
-  beforeEach(() => {
-    httpservice = {
-      post: jest.fn()
-    } as any;
-    
-    service = new YourServiceClass(httpservice);
-    service.lmsAPIBaseUrl = 'http://test-api.com';
-    service.handleAPIError = jest.fn();
-  });
+import { Test, TestingModule } from '@nestjs/testing';
+import MockAdapter from 'axios-mock-adapter';
+import { LmsService } from '../lms.service';
+import {
+  AXIOS_INSTANCE_TOKEN,
+  CommonConfigModule,
+  CommonHttpModule,
+  CommonTokenModule,
+  CommonTokenService,
+} from '@primerica/ent-common-nestjs';
+import {
+  BadRequestException,
+  ConflictException,
+  HttpStatus,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  mockEvent,
+  mockEventsResponse,
+  mockAgent,
+  mockAgentsResponse,
+  mockAttestationResponse,
+  mockRegistrationResponse,
+  mockNote,
+  mockNotesRequest,
+  mockRegistrationRequest,
+  mockExamVersionResponse,
+  mockRosterPrintUrlRequestr,
+  mockIdCheckIdType,
+} from '@primerica/pfsu-common-lib/mocks';
+import { mock, MockProxy } from 'jest-mock-extended';
+import { cloneDeep } from 'lodash';
+import { AxiosInstance, AxiosError } from 'axios';
+import { Agent } from '@primerica/pfsu-common-lib';
+import { Operation } from 'fast-json-patch';
 
-  it('should call handleAPIError when HTTP request fails with network error', async () => {
-    // Arrange
-    const mockError = new Error('Network error');
-    httpservice.post.mockRejectedValue(mockError);
-    
-    const eventId = 'event-123';
-    const registrationRequest = { /* your test request data */ };
-    const loggedInAgentId = 'agent-123';
-    
-    const expectedErrorResponse = { error: 'API Error' };
-    (service.handleAPIError as jest.Mock).mockReturnValue(expectedErrorResponse);
+describe('LmsService', () => {
+  let module: TestingModule;
+  let lmsSevice: LmsService;
+  let mockAxios: MockAdapter;
+  let mockCommonTokenService: MockProxy<CommonTokenService>;
 
-    // Act
-    const result = await service.addAgentToEvent(eventId, registrationRequest, loggedInAgentId);
+  describe('when a valid config provided', () => {
+    beforeEach(async () => {
+      mockCommonTokenService = mock<CommonTokenService>();
+      module = await Test.createTestingModule({
+        imports: [CommonConfigModule.register(), CommonHttpModule, CommonTokenModule],
+        providers: [LmsService],
+      })
+        .overrideProvider(CommonTokenService)
+        .useValue(mockCommonTokenService)
+        .compile();
 
-    // Assert
-    expect(httpservice.post).toHaveBeenCalledWith(
-      'http://test-api.com/events/event-123/registrants',
-      registrationRequest,
-      {
-        headers: expect.anything()
-      }
-    );
-    expect(service.handleAPIError).toHaveBeenCalledWith(mockError);
-    expect(result).toBe(expectedErrorResponse);
-  });
+      lmsSevice = module.get<LmsService>(LmsService);
 
-  it('should call handleAPIError when HTTP request fails with API error response', async () => {
-    // Arrange
-    const mockApiError = {
-      response: {
-        status: 400,
-        data: { message: 'Bad Request' }
-      }
-    };
-    httpservice.post.mockRejectedValue(mockApiError);
-    
-    const eventId = 'event-123';
-    const registrationRequest = { /* your test request data */ };
-    const loggedInAgentId = 'agent-123';
-    
-    const expectedErrorResponse = { error: 'Validation failed' };
-    (service.handleAPIError as jest.Mock).mockReturnValue(expectedErrorResponse);
+      const axiosInstance = module.get<AxiosInstance>(AXIOS_INSTANCE_TOKEN);
+      mockAxios = new MockAdapter(axiosInstance);
+    });
 
-    // Act
-    const result = await service.addAgentToEvent(eventId, registrationRequest, loggedInAgentId);
+    afterEach(() => {
+      jest.restoreAllMocks();
+      mockAxios.reset();
+    });
 
-    // Assert
-    expect(service.handleAPIError).toHaveBeenCalledWith(mockApiError);
-    expect(result).toBe(expectedErrorResponse);
-  });
+    describe('when calling getEventById', () => {
+      it('should return results of calling pfsu-lms-api', async () => {
+        mockAxios.onGet().reply(HttpStatus.OK, cloneDeep(mockEvent));
+        const eventInfo = await lmsSevice.getEventById('1212');
+        expect(eventInfo).toEqual(mockEvent);
+        expect(mockAxios.history.get).toHaveLength(1);
+      });
+    });
 
-  it('should call handleAPIError when HTTP request fails with 500 error', async () => {
-    // Arrange
-    const mockServerError = {
-      response: {
-        status: 500,
-        data: { message: 'Internal Server Error' }
-      }
-    };
-    httpservice.post.mockRejectedValue(mockServerError);
-    
-    const eventId = 'event-123';
-    const registrationRequest = { /* your test request data */ };
-    const loggedInAgentId = 'agent-123';
-    
-    const expectedErrorResponse = { error: 'Server error' };
-    (service.handleAPIError as jest.Mock).mockReturnValue(expectedErrorResponse);
+    describe('when calling searchEvents', () => {
+      it('should return results of calling pfsu-lms-api', async () => {
+        mockAxios.onGet().reply(HttpStatus.OK, cloneDeep(mockEventsResponse));
+        const events = await lmsSevice.searchEvents('1212');
+        expect(events).toEqual(mockEventsResponse);
+        expect(mockAxios.history.get).toHaveLength(1);
+      });
+    });
 
-    // Act
-    const result = await service.addAgentToEvent(eventId, registrationRequest, loggedInAgentId);
+    describe('when calling getAgentById', () => {
+      it('should return results of calling pfsu-lms-api', async () => {
+        mockAxios.onGet().reply(HttpStatus.OK, cloneDeep(mockAgentsResponse));
+        const agentInfo: Agent = await lmsSevice.getAgentById('1212');
+        expect(agentInfo).toEqual(mockAgent);
+        expect(mockAxios.history.get).toHaveLength(1);
+      });
+    });
 
-    // Assert
-    expect(service.handleAPIError).toHaveBeenCalledWith(mockServerError);
-    expect(result).toBe(expectedErrorResponse);
-  });
+    describe('when calling searchAgents', () => {
+      it('should return results of calling pfsu-lms-api', async () => {
+        mockAxios.onGet().reply(HttpStatus.OK, cloneDeep(mockAgentsResponse));
+        const agents = await lmsSevice.searchAgents('1212', 'Doe', 'John');
+        expect(agents).toEqual(mockAgentsResponse);
+        expect(mockAxios.history.get).toHaveLength(1);
+      });
+    });
 
-  it('should call handleAPIError when buildRequestHeaders throws error', async () => {
-    // Arrange
-    const eventId = 'event-123';
-    const registrationRequest = { /* your test request data */ };
-    const loggedInAgentId = 'agent-123';
-    
-    // Mock buildRequestHeaders to throw an error
-    service.buildRequestHeaders = jest.fn().mockRejectedValue(new Error('Header build failed'));
-    
-    const expectedErrorResponse = { error: 'Header build failed' };
-    (service.handleAPIError as jest.Mock).mockReturnValue(expectedErrorResponse);
+    describe('when calling updateAgentById', () => {
+      const patches: Operation[] = [];
+      patches.push({
+        op: 'replace',
+        path: '/ciprNumber',
+        value: '121256',
+      });
+      it('should return results of calling pfsu-lms-api', async () => {
+        mockAxios.onPatch().reply(HttpStatus.OK);
+        await lmsSevice.updateAgentById('00028', patches, 'D0623');
+        expect(mockAxios.history.patch).toHaveLength(1);
+      });
+    });
 
-    // Act
-    const result = await service.addAgentToEvent(eventId, registrationRequest, loggedInAgentId);
+    describe('when calling addAgentToEvent', () => {
+      it('should return results of calling pfsu-lms-api', async () => {
+        mockAxios.onPost().reply(HttpStatus.OK, cloneDeep(mockRegistrationResponse));
+        const registrationResponse = await lmsSevice.addAgentToEvent(
+          '1122',
+          mockRegistrationRequest,
+          'D0623'
+        );
+        expect(mockAxios.history.post).toHaveLength(1);
+        expect(registrationResponse).toEqual(mockRegistrationResponse);
+      });
+    });
 
-    // Assert
-    expect(service.handleAPIError).toHaveBeenCalled();
-    expect(result).toBe(expectedErrorResponse);
+    describe('when calling updateEventById', () => {
+      const patches: Operation[] = [];
+      patches.push({
+        op: 'replace',
+        path: '/checkinComplete',
+        value: 'true',
+      });
+      it('should return results of calling pfsu-lms-api', async () => {
+        mockAxios.onPatch().reply(HttpStatus.OK);
+        await lmsSevice.updateEventById('00028', patches, 'D0623');
+        expect(mockAxios.history.patch).toHaveLength(1);
+      });
+    });
+
+    describe('when calling getInstructorAttestationStatus', () => {
+      it('should return results of calling pfsu-lms-api', async () => {
+        mockAxios.onGet().reply(HttpStatus.OK, cloneDeep(mockAttestationResponse));
+        const attestationResponse = await lmsSevice.getInstructorAttestationStatus(
+          '1212',
+          '102881'
+        );
+        expect(attestationResponse).toEqual(mockAttestationResponse);
+        expect(mockAxios.history.get).toHaveLength(1);
+      });
+    });
+
+    describe('when calling updateScheduleAttestation', () => {
+      const patches: Operation[] = [];
+      patches.push({
+        op: 'replace',
+        path: '/status',
+        value: 'ACTIVE',
+      });
+      it('should return results of calling pfsu-lms-api', async () => {
+        mockAxios.onPatch().reply(HttpStatus.OK);
+        await lmsSevice.updateScheduleAttestation('11', '22', patches, 'D0623');
+        expect(mockAxios.history.patch).toHaveLength(1);
+      });
+    });
+
+    describe('when calling updateRegistration', () => {
+      const patches: Operation[] = [];
+      patches.push({
+        op: 'replace',
+        path: '/attendance',
+        value: 'true',
+      });
+      it('should return results of calling pfsu-lms-api', async () => {
+        mockAxios.onPatch().reply(HttpStatus.OK);
+        await lmsSevice.updateRegistration('11', patches, 'D0623');
+        expect(mockAxios.history.patch).toHaveLength(1);
+      });
+    });
+
+    describe('when calling getAgentNotes', () => {
+      it('should return results of calling pfsu-lms-api', async () => {
+        mockAxios.onGet().reply(HttpStatus.OK, cloneDeep(mockEventsResponse));
+        const notesResponse = await lmsSevice.getAgentNotes('102881');
+        expect(notesResponse).toEqual(mockEventsResponse);
+        expect(mockAxios.history.get).toHaveLength(1);
+      });
+    });
+
+    describe('when calling addAgentNote', () => {
+      it('should return results of calling pfsu-lms-api', async () => {
+        mockAxios.onPost().reply(HttpStatus.OK, cloneDeep(mockNote));
+        const note = await lmsSevice.addAgentNote('1122', mockNotesRequest, 'D0623');
+        expect(mockAxios.history.post).toHaveLength(1);
+        expect(note).toEqual(mockNote);
+      });
+    });
+
+    describe('when calling getExamVersions', () => {
+      const ACTIVE: string = 'active';
+      const INACTIVE: string = 'inactive';
+      it('should return results of calling pfsu-lms-api', async () => {
+        mockAxios.onGet().reply(HttpStatus.OK, cloneDeep(mockExamVersionResponse));
+        const examVersions = await lmsSevice.getExamVersions(ACTIVE);
+        expect(examVersions).toEqual(mockExamVersionResponse);
+        expect(mockAxios.history.get).toHaveLength(1);
+      });
+    });
+
+    describe('when calling getIdCheckTypes', () => {
+      it('should return results of calling pfsu-lms-api', async () => {
+        mockAxios.onGet().reply(HttpStatus.OK, cloneDeep([mockIdCheckIdType]));
+        const idTypes = await lmsSevice.getIdCheckTypes();
+        expect(idTypes).toEqual([mockIdCheckIdType]);
+        expect(mockAxios.history.get).toHaveLength(1);
+      });
+    });
+
+    describe('when calling getRosterPrintUrl', () => {
+      it('should return results of calling pfsu-lms-api', async () => {
+        mockAxios.onPost().reply(HttpStatus.OK, cloneDeep(''));
+        const res = await lmsSevice.getRosterPrintUrl(mockRosterPrintUrlRequestr, 'D0623');
+        expect(mockAxios.history.post).toHaveLength(1);
+        expect(res).toBe('');
+      });
+    });
+
+    describe('when calling addDocument', () => {
+      const documentUniqueKey = '576';
+      const refId = '4356';
+      const agentId = 'abcd';
+      const refType = 'checkin';
+      const loggedInUserId = 'D0623';
+      it('should return results of calling pfsu-lms-api', async () => {
+        mockAxios.onPost().reply(HttpStatus.OK, cloneDeep(''));
+        const res = await lmsSevice.addDocument(
+          documentUniqueKey,
+          refId,
+          agentId,
+          refType,
+          loggedInUserId
+        );
+        expect(mockAxios.history.post).toHaveLength(1);
+        expect(res).toBe('');
+      });
+    });
+
+    // Additional test cases: Error handling for getEventById
+    describe('when calling getEventById with errors', () => {
+      it('should throw NotFoundException when event is not found', async () => {
+        mockAxios.onGet().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'Event not found',
+          info: 'The requested event does not exist',
+        });
+        await expect(lmsSevice.getEventById('9999')).rejects.toThrow(NotFoundException);
+      });
+
+      it('should throw BadRequestException when invalid eventId is provided', async () => {
+        mockAxios.onGet().reply(HttpStatus.BAD_REQUEST, {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Invalid event ID',
+          info: 'The event ID format is invalid',
+        });
+        await expect(lmsSevice.getEventById('invalid')).rejects.toThrow(BadRequestException);
+      });
+
+      it('should throw InternalServerErrorException when server error occurs', async () => {
+        mockAxios.onGet().reply(HttpStatus.INTERNAL_SERVER_ERROR, {
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Internal server error',
+          info: 'An unexpected error occurred',
+        });
+        await expect(lmsSevice.getEventById('1212')).rejects.toThrow(
+          InternalServerErrorException
+        );
+      });
+    });
+
+    // Additional test cases: Error handling for searchEvents
+    describe('when calling searchEvents with errors', () => {
+      it('should throw NotFoundException when instructor has no events', async () => {
+        mockAxios.onGet().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'No events found',
+          info: 'No events found for the given instructor',
+        });
+        await expect(lmsSevice.searchEvents('9999')).rejects.toThrow(NotFoundException);
+      });
+
+      it('should throw BadRequestException when invalid instructorId is provided', async () => {
+        mockAxios.onGet().reply(HttpStatus.BAD_REQUEST, {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Invalid instructor ID',
+          info: 'The instructor ID format is invalid',
+        });
+        await expect(lmsSevice.searchEvents('')).rejects.toThrow(BadRequestException);
+      });
+    });
+
+    // Additional test cases: Error handling for getAgentById
+    describe('when calling getAgentById with errors', () => {
+      it('should throw NotFoundException when agent is not found', async () => {
+        mockAxios.onGet().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'Agent not found',
+          info: 'The requested agent does not exist',
+        });
+        await expect(lmsSevice.getAgentById('9999')).rejects.toThrow(NotFoundException);
+      });
+
+      it('should handle empty agents array gracefully', async () => {
+        mockAxios.onGet().reply(HttpStatus.OK, { agents: [] });
+        await expect(lmsSevice.getAgentById('9999')).rejects.toThrow();
+      });
+    });
+
+    // Additional test cases: Edge cases for searchAgents with different parameter combinations
+    describe('when calling searchAgents with different parameter combinations', () => {
+      it('should search agents with only firstName', async () => {
+        mockAxios.onGet().reply(HttpStatus.OK, cloneDeep(mockAgentsResponse));
+        const agents = await lmsSevice.searchAgents('John', undefined, undefined);
+        expect(agents).toEqual(mockAgentsResponse);
+        expect(mockAxios.history.get[0].url).toContain('firstName=John');
+        expect(mockAxios.history.get[0].url).not.toContain('lastName');
+        expect(mockAxios.history.get[0].url).not.toContain('lastFourSsn');
+      });
+
+      it('should search agents with only lastName', async () => {
+        mockAxios.onGet().reply(HttpStatus.OK, cloneDeep(mockAgentsResponse));
+        const agents = await lmsSevice.searchAgents(undefined, 'Doe', undefined);
+        expect(agents).toEqual(mockAgentsResponse);
+        expect(mockAxios.history.get[0].url).toContain('lastName=Doe');
+        expect(mockAxios.history.get[0].url).not.toContain('firstName');
+        expect(mockAxios.history.get[0].url).not.toContain('lastFourSsn');
+      });
+
+      it('should search agents with only ssnLastFour', async () => {
+        mockAxios.onGet().reply(HttpStatus.OK, cloneDeep(mockAgentsResponse));
+        const agents = await lmsSevice.searchAgents(undefined, undefined, '1234');
+        expect(agents).toEqual(mockAgentsResponse);
+        expect(mockAxios.history.get[0].url).toContain('lastFourSsn=1234');
+        expect(mockAxios.history.get[0].url).not.toContain('firstName');
+        expect(mockAxios.history.get[0].url).not.toContain('lastName');
+      });
+
+      it('should search agents with all parameters', async () => {
+        mockAxios.onGet().reply(HttpStatus.OK, cloneDeep(mockAgentsResponse));
+        const agents = await lmsSevice.searchAgents('John', 'Doe', '1234');
+        expect(agents).toEqual(mockAgentsResponse);
+        expect(mockAxios.history.get[0].url).toContain('firstName=John');
+        expect(mockAxios.history.get[0].url).toContain('lastName=Doe');
+        expect(mockAxios.history.get[0].url).toContain('lastFourSsn=1234');
+      });
+
+      it('should search agents with no parameters', async () => {
+        mockAxios.onGet().reply(HttpStatus.OK, cloneDeep(mockAgentsResponse));
+        const agents = await lmsSevice.searchAgents(undefined, undefined, undefined);
+        expect(agents).toEqual(mockAgentsResponse);
+        expect(mockAxios.history.get[0].url).not.toContain('firstName');
+        expect(mockAxios.history.get[0].url).not.toContain('lastName');
+        expect(mockAxios.history.get[0].url).not.toContain('lastFourSsn');
+      });
+    });
+
+    // Additional test cases: Error handling for searchAgents
+    describe('when calling searchAgents with errors', () => {
+      it('should throw NotFoundException when no agents are found', async () => {
+        mockAxios.onGet().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'No agents found',
+          info: 'No agents match the search criteria',
+        });
+        await expect(lmsSevice.searchAgents('John', 'Doe', '1234')).rejects.toThrow(
+          NotFoundException
+        );
+      });
+    });
+
+    // Additional test cases: Error handling for updateAgentById
+    describe('when calling updateAgentById with errors', () => {
+      const patches: Operation[] = [
+        {
+          op: 'replace',
+          path: '/ciprNumber',
+          value: '121256',
+        },
+      ];
+      it('should throw NotFoundException when agent is not found', async () => {
+        mockAxios.onPatch().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'Agent not found',
+          info: 'The requested agent does not exist',
+        });
+        await expect(
+          lmsSevice.updateAgentById('9999', patches, 'D0623')
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('should throw ConflictException when update conflicts', async () => {
+        mockAxios.onPatch().reply(HttpStatus.CONFLICT, {
+          statusCode: HttpStatus.CONFLICT,
+          message: 'Update conflict',
+          info: 'The agent has been modified by another user',
+        });
+        await expect(
+          lmsSevice.updateAgentById('00028', patches, 'D0623')
+        ).rejects.toThrow(ConflictException);
+      });
+
+      it('should throw BadRequestException when invalid patches are provided', async () => {
+        mockAxios.onPatch().reply(HttpStatus.BAD_REQUEST, {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Invalid patch operation',
+          info: 'The patch operation is invalid',
+        });
+        await expect(
+          lmsSevice.updateAgentById('00028', patches, 'D0623')
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
+
+    // Additional test cases: Error handling for addAgentToEvent
+    describe('when calling addAgentToEvent with errors', () => {
+      it('should throw NotFoundException when event is not found', async () => {
+        mockAxios.onPost().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'Event not found',
+          info: 'The requested event does not exist',
+        });
+        await expect(
+          lmsSevice.addAgentToEvent('9999', mockRegistrationRequest, 'D0623')
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('should throw ConflictException when agent is already registered', async () => {
+        mockAxios.onPost().reply(HttpStatus.CONFLICT, {
+          statusCode: HttpStatus.CONFLICT,
+          message: 'Agent already registered',
+          info: 'The agent is already registered for this event',
+        });
+        await expect(
+          lmsSevice.addAgentToEvent('1122', mockRegistrationRequest, 'D0623')
+        ).rejects.toThrow(ConflictException);
+      });
+
+      it('should throw BadRequestException when invalid registration request is provided', async () => {
+        mockAxios.onPost().reply(HttpStatus.BAD_REQUEST, {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Invalid registration request',
+          info: 'The registration request is invalid',
+        });
+        await expect(
+          lmsSevice.addAgentToEvent('1122', mockRegistrationRequest, 'D0623')
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
+
+    // Additional test cases: Error handling for updateEventById
+    describe('when calling updateEventById with errors', () => {
+      const patches: Operation[] = [
+        {
+          op: 'replace',
+          path: '/checkinComplete',
+          value: 'true',
+        },
+      ];
+      it('should throw NotFoundException when event is not found', async () => {
+        mockAxios.onPatch().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'Event not found',
+          info: 'The requested event does not exist',
+        });
+        await expect(
+          lmsSevice.updateEventById('9999', patches, 'D0623')
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('should throw BadRequestException when invalid patches are provided', async () => {
+        mockAxios.onPatch().reply(HttpStatus.BAD_REQUEST, {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Invalid patch operation',
+          info: 'The patch operation is invalid',
+        });
+        await expect(
+          lmsSevice.updateEventById('00028', patches, 'D0623')
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
+
+    // Additional test cases: Error handling for getInstructorAttestationStatus
+    describe('when calling getInstructorAttestationStatus with errors', () => {
+      it('should throw NotFoundException when instructor or schedule is not found', async () => {
+        mockAxios.onGet().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'Instructor or schedule not found',
+          info: 'The requested instructor or schedule does not exist',
+        });
+        await expect(
+          lmsSevice.getInstructorAttestationStatus('9999', '9999')
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('should throw BadRequestException when invalid parameters are provided', async () => {
+        mockAxios.onGet().reply(HttpStatus.BAD_REQUEST, {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Invalid parameters',
+          info: 'The instructor ID or schedule ID format is invalid',
+        });
+        await expect(
+          lmsSevice.getInstructorAttestationStatus('', '')
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
+
+    // Additional test cases: Error handling for updateScheduleAttestation
+    describe('when calling updateScheduleAttestation with errors', () => {
+      const patches: Operation[] = [
+        {
+          op: 'replace',
+          path: '/status',
+          value: 'ACTIVE',
+        },
+      ];
+      it('should throw NotFoundException when instructor or schedule is not found', async () => {
+        mockAxios.onPatch().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'Instructor or schedule not found',
+          info: 'The requested instructor or schedule does not exist',
+        });
+        await expect(
+          lmsSevice.updateScheduleAttestation('9999', '9999', patches, 'D0623')
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('should throw ConflictException when update conflicts', async () => {
+        mockAxios.onPatch().reply(HttpStatus.CONFLICT, {
+          statusCode: HttpStatus.CONFLICT,
+          message: 'Update conflict',
+          info: 'The schedule has been modified by another user',
+        });
+        await expect(
+          lmsSevice.updateScheduleAttestation('11', '22', patches, 'D0623')
+        ).rejects.toThrow(ConflictException);
+      });
+    });
+
+    // Additional test cases: Error handling for updateRegistration
+    describe('when calling updateRegistration with errors', () => {
+      const patches: Operation[] = [
+        {
+          op: 'replace',
+          path: '/attendance',
+          value: 'true',
+        },
+      ];
+      it('should throw NotFoundException when registration is not found', async () => {
+        mockAxios.onPatch().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'Registration not found',
+          info: 'The requested registration does not exist',
+        });
+        await expect(
+          lmsSevice.updateRegistration('9999', patches, 'D0623')
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('should throw BadRequestException when invalid patches are provided', async () => {
+        mockAxios.onPatch().reply(HttpStatus.BAD_REQUEST, {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Invalid patch operation',
+          info: 'The patch operation is invalid',
+        });
+        await expect(
+          lmsSevice.updateRegistration('11', patches, 'D0623')
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
+
+    // Additional test cases: Error handling for getAgentNotes
+    describe('when calling getAgentNotes with errors', () => {
+      it('should throw NotFoundException when registration is not found', async () => {
+        mockAxios.onGet().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'Registration not found',
+          info: 'The requested registration does not exist',
+        });
+        await expect(lmsSevice.getAgentNotes('9999')).rejects.toThrow(NotFoundException);
+      });
+
+      it('should throw BadRequestException when invalid registrationId is provided', async () => {
+        mockAxios.onGet().reply(HttpStatus.BAD_REQUEST, {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Invalid registration ID',
+          info: 'The registration ID format is invalid',
+        });
+        await expect(lmsSevice.getAgentNotes('')).rejects.toThrow(BadRequestException);
+      });
+    });
+
+    // Additional test cases: Error handling for addAgentNote
+    describe('when calling addAgentNote with errors', () => {
+      it('should throw NotFoundException when registration is not found', async () => {
+        mockAxios.onPost().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'Registration not found',
+          info: 'The requested registration does not exist',
+        });
+        await expect(
+          lmsSevice.addAgentNote('9999', mockNotesRequest, 'D0623')
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('should throw BadRequestException when invalid note request is provided', async () => {
+        mockAxios.onPost().reply(HttpStatus.BAD_REQUEST, {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Invalid note request',
+          info: 'The note request is invalid',
+        });
+        await expect(
+          lmsSevice.addAgentNote('1122', mockNotesRequest, 'D0623')
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
+
+    // Additional test cases: Error handling for getExamVersions
+    describe('when calling getExamVersions with errors', () => {
+      it('should throw NotFoundException when no exam versions are found', async () => {
+        mockAxios.onGet().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'No exam versions found',
+          info: 'No exam versions match the status criteria',
+        });
+        await expect(lmsSevice.getExamVersions('active')).rejects.toThrow(NotFoundException);
+      });
+
+      it('should throw BadRequestException when invalid status is provided', async () => {
+        mockAxios.onGet().reply(HttpStatus.BAD_REQUEST, {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Invalid status',
+          info: 'The status parameter is invalid',
+        });
+        await expect(lmsSevice.getExamVersions('invalid')).rejects.toThrow(BadRequestException);
+      });
+    });
+
+    // Additional test cases: Error handling for getIdCheckTypes
+    describe('when calling getIdCheckTypes with errors', () => {
+      it('should throw NotFoundException when no ID check types are found', async () => {
+        mockAxios.onGet().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'No ID check types found',
+          info: 'No ID check types are available',
+        });
+        await expect(lmsSevice.getIdCheckTypes()).rejects.toThrow(NotFoundException);
+      });
+
+      it('should throw InternalServerErrorException when server error occurs', async () => {
+        mockAxios.onGet().reply(HttpStatus.INTERNAL_SERVER_ERROR, {
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Internal server error',
+          info: 'An unexpected error occurred',
+        });
+        await expect(lmsSevice.getIdCheckTypes()).rejects.toThrow(
+          InternalServerErrorException
+        );
+      });
+    });
+
+    // Additional test cases: Error handling for getRosterPrintUrl
+    describe('when calling getRosterPrintUrl with errors', () => {
+      it('should throw NotFoundException when roster is not found', async () => {
+        mockAxios.onPost().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'Roster not found',
+          info: 'The requested roster does not exist',
+        });
+        await expect(
+          lmsSevice.getRosterPrintUrl(mockRosterPrintUrlRequestr, 'D0623')
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('should throw BadRequestException when invalid parameters are provided', async () => {
+        mockAxios.onPost().reply(HttpStatus.BAD_REQUEST, {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Invalid parameters',
+          info: 'The roster print URL parameters are invalid',
+        });
+        await expect(
+          lmsSevice.getRosterPrintUrl(mockRosterPrintUrlRequestr, 'D0623')
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('should handle 400 status code with INTERNAL_SERVER_ERROR response', async () => {
+        mockAxios.onPost().reply(400, {
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Invalid Input',
+          info: 'The input parameters are invalid',
+        });
+        await expect(
+          lmsSevice.getRosterPrintUrl(mockRosterPrintUrlRequestr, 'D0623')
+        ).rejects.toThrow();
+      });
+    });
+
+    // Additional test cases: Error handling for addDocument
+    describe('when calling addDocument with errors', () => {
+      const documentUniqueKey = '576';
+      const refId = '4356';
+      const agentId = 'abcd';
+      const refType = 'checkin';
+      const loggedInUserId = 'D0623';
+
+      it('should throw NotFoundException when agent is not found', async () => {
+        mockAxios.onPost().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'Agent not found',
+          info: 'The requested agent does not exist',
+        });
+        await expect(
+          lmsSevice.addDocument(documentUniqueKey, refId, agentId, refType, loggedInUserId)
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('should throw BadRequestException when invalid document parameters are provided', async () => {
+        mockAxios.onPost().reply(HttpStatus.BAD_REQUEST, {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Invalid document parameters',
+          info: 'The document parameters are invalid',
+        });
+        await expect(
+          lmsSevice.addDocument(documentUniqueKey, refId, agentId, refType, loggedInUserId)
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('should throw ConflictException when document already exists', async () => {
+        mockAxios.onPost().reply(HttpStatus.CONFLICT, {
+          statusCode: HttpStatus.CONFLICT,
+          message: 'Document already exists',
+          info: 'The document has already been added',
+        });
+        await expect(
+          lmsSevice.addDocument(documentUniqueKey, refId, agentId, refType, loggedInUserId)
+        ).rejects.toThrow(ConflictException);
+      });
+    });
+
+    // Additional test cases: Testing handleAPIError with different HTTP status codes
+    describe('when API returns different HTTP status codes', () => {
+      it('should throw HttpException for unhandled status codes', async () => {
+        mockAxios.onGet().reply(418, {
+          statusCode: 418,
+          message: "I'm a teapot",
+          info: 'Unhandled status code',
+        });
+        await expect(lmsSevice.getEventById('1212')).rejects.toThrow();
+      });
+
+      it('should throw NotFoundException for unknown error format', async () => {
+        mockAxios.onGet().reply(HttpStatus.NOT_FOUND, null);
+        await expect(lmsSevice.getEventById('1212')).rejects.toThrow(NotFoundException);
+      });
+    });
+
+    // Additional test cases: Testing buildRequestHeaders indirectly through method calls
+    describe('when methods are called with and without loggedInAgentId', () => {
+      it('should include x-pri-id-token header when loggedInAgentId is provided', async () => {
+        mockAxios.onGet().reply(HttpStatus.OK, cloneDeep(mockEvent));
+        mockCommonTokenService.getAccessToken.mockResolvedValue('mock-token');
+        await lmsSevice.getEventById('1212');
+        const requestHeaders = mockAxios.history.get[0].headers;
+        expect(requestHeaders).toHaveProperty('Authorization', 'Bearer mock-token');
+        expect(requestHeaders).toHaveProperty('Content-Type', 'application/json');
+      });
+
+      it('should include x-pri-id-token header in POST requests with loggedInAgentId', async () => {
+        mockAxios.onPost().reply(HttpStatus.OK, cloneDeep(mockRegistrationResponse));
+        mockCommonTokenService.getAccessToken.mockResolvedValue('mock-token');
+        await lmsSevice.addAgentToEvent('1122', mockRegistrationRequest, 'D0623');
+        const requestHeaders = mockAxios.history.post[0].headers;
+        expect(requestHeaders).toHaveProperty('x-pri-id-token', 'D0623');
+        expect(requestHeaders).toHaveProperty('Authorization', 'Bearer mock-token');
+      });
+
+      it('should not include x-pri-id-token header when loggedInAgentId is empty', async () => {
+        mockAxios.onGet().reply(HttpStatus.OK, cloneDeep(mockEvent));
+        mockCommonTokenService.getAccessToken.mockResolvedValue('mock-token');
+        await lmsSevice.getEventById('1212');
+        const requestHeaders = mockAxios.history.get[0].headers;
+        expect(requestHeaders).toHaveProperty('x-pri-id-token', '');
+      });
+    });
+
+    // Additional test cases: Comprehensive testing of handleAPIError method - Non-Axios errors
+    describe('when handleAPIError receives non-Axios errors', () => {
+      it('should throw NotFoundException for non-Axios errors', async () => {
+        const axiosInstance = module.get<AxiosInstance>(AXIOS_INSTANCE_TOKEN);
+        const originalGet = axiosInstance.get;
+        axiosInstance.get = jest.fn().mockRejectedValue(new Error('Network error'));
+        await expect(lmsSevice.getEventById('1212')).rejects.toThrow(NotFoundException);
+        axiosInstance.get = originalGet;
+      });
+
+      it('should throw NotFoundException for string errors', async () => {
+        const axiosInstance = module.get<AxiosInstance>(AXIOS_INSTANCE_TOKEN);
+        const originalGet = axiosInstance.get;
+        axiosInstance.get = jest.fn().mockRejectedValue('String error');
+        await expect(lmsSevice.getEventById('1212')).rejects.toThrow(NotFoundException);
+        axiosInstance.get = originalGet;
+      });
+    });
+
+    // Additional test cases: Comprehensive testing of handleAPIError - Axios errors without response
+    describe('when handleAPIError receives Axios errors without response', () => {
+      it('should throw NotFoundException when Axios error has no response', async () => {
+        const axiosInstance = module.get<AxiosInstance>(AXIOS_INSTANCE_TOKEN);
+        const originalGet = axiosInstance.get;
+        const axiosError = new Error('Network Error') as AxiosError;
+        axiosError.isAxiosError = true;
+        axiosError.config = { url: 'http://test.com' };
+        axiosInstance.get = jest.fn().mockRejectedValue(axiosError);
+        await expect(lmsSevice.getEventById('1212')).rejects.toThrow(NotFoundException);
+        axiosInstance.get = originalGet;
+      });
+
+      it('should throw NotFoundException when Axios error response.data is null', async () => {
+        const axiosInstance = module.get<AxiosInstance>(AXIOS_INSTANCE_TOKEN);
+        const originalGet = axiosInstance.get;
+        const axiosError = new Error('Error') as AxiosError;
+        axiosError.isAxiosError = true;
+        axiosError.response = {
+          data: null,
+          status: 404,
+          statusText: 'Not Found',
+          headers: {},
+          config: { url: 'http://test.com' },
+        };
+        axiosError.config = { url: 'http://test.com' };
+        axiosInstance.get = jest.fn().mockRejectedValue(axiosError);
+        await expect(lmsSevice.getEventById('1212')).rejects.toThrow(NotFoundException);
+        axiosInstance.get = originalGet;
+      });
+
+      it('should throw NotFoundException when Axios error response.data is not an object', async () => {
+        const axiosInstance = module.get<AxiosInstance>(AXIOS_INSTANCE_TOKEN);
+        const originalGet = axiosInstance.get;
+        const axiosError = new Error('Error') as AxiosError;
+        axiosError.isAxiosError = true;
+        axiosError.response = {
+          data: 'string data',
+          status: 404,
+          statusText: 'Not Found',
+          headers: {},
+          config: { url: 'http://test.com' },
+        };
+        axiosError.config = { url: 'http://test.com' };
+        axiosInstance.get = jest.fn().mockRejectedValue(axiosError);
+        await expect(lmsSevice.getEventById('1212')).rejects.toThrow(NotFoundException);
+        axiosInstance.get = originalGet;
+      });
+    });
+
+    // Additional test cases: Comprehensive testing of handleAPIError - statusCode edge cases
+    describe('when handleAPIError receives errors with non-number statusCode', () => {
+      it('should use INTERNAL_SERVER_ERROR when statusCode is not a number', async () => {
+        mockAxios.onGet().reply(HttpStatus.INTERNAL_SERVER_ERROR, {
+          statusCode: 'invalid',
+          message: 'Error',
+          info: 'Invalid status code',
+        });
+        await expect(lmsSevice.getEventById('1212')).rejects.toThrow(
+          InternalServerErrorException
+        );
+      });
+
+      it('should use INTERNAL_SERVER_ERROR when statusCode is undefined', async () => {
+        mockAxios.onGet().reply(HttpStatus.INTERNAL_SERVER_ERROR, {
+          message: 'Error',
+          info: 'No status code',
+        });
+        await expect(lmsSevice.getEventById('1212')).rejects.toThrow(
+          InternalServerErrorException
+        );
+      });
+    });
+
+    // Additional test cases: Comprehensive testing of handleAPIError - special 400/500 case
+    describe('when handleAPIError receives INTERNAL_SERVER_ERROR with err.status == 400', () => {
+      it('should throw HttpException with 400 status when statusCode is 500 but err.status is 400', async () => {
+        const axiosInstance = module.get<AxiosInstance>(AXIOS_INSTANCE_TOKEN);
+        const originalGet = axiosInstance.get;
+        const axiosError = new Error('Error') as AxiosError;
+        axiosError.isAxiosError = true;
+        axiosError.status = 400;
+        axiosError.response = {
+          data: {
+            statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+            message: 'Error',
+            info: 'Special case',
+          },
+          status: 400,
+          statusText: 'Bad Request',
+          headers: {},
+          config: { url: 'http://test.com' },
+        };
+        axiosError.config = { url: 'http://test.com' };
+        axiosInstance.get = jest.fn().mockRejectedValue(axiosError);
+        await expect(lmsSevice.getEventById('1212')).rejects.toThrow();
+        axiosInstance.get = originalGet;
+      });
+    });
+
+    // Additional test cases: Comprehensive testing of handleAPIError - config.url edge cases
+    describe('when handleAPIError receives errors with undefined config.url', () => {
+      it('should default source to C# when config.url is undefined', async () => {
+        const axiosInstance = module.get<AxiosInstance>(AXIOS_INSTANCE_TOKEN);
+        const originalGet = axiosInstance.get;
+        const axiosError = new Error('Error') as AxiosError;
+        axiosError.isAxiosError = true;
+        axiosError.response = {
+          data: {
+            statusCode: HttpStatus.BAD_REQUEST,
+            message: 'Error',
+            info: 'Test',
+          },
+          status: 400,
+          statusText: 'Bad Request',
+          headers: {},
+          config: {},
+        };
+        axiosError.config = {};
+        axiosInstance.get = jest.fn().mockRejectedValue(axiosError);
+        await expect(lmsSevice.getEventById('1212')).rejects.toThrow(BadRequestException);
+        axiosInstance.get = originalGet;
+      });
+    });
+
+    // Additional test cases: Testing void methods error paths (updateAgentById, updateEventById, etc.)
+    describe('when void methods encounter errors', () => {
+      const patches: Operation[] = [
+        {
+          op: 'replace',
+          path: '/test',
+          value: 'test',
+        },
+      ];
+
+      it('should handle errors in updateAgentById catch block', async () => {
+        mockAxios.onPatch().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'Agent not found',
+          info: 'The requested agent does not exist',
+        });
+        await expect(
+          lmsSevice.updateAgentById('9999', patches, 'D0623')
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('should handle errors in updateEventById catch block', async () => {
+        mockAxios.onPatch().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'Event not found',
+          info: 'The requested event does not exist',
+        });
+        await expect(
+          lmsSevice.updateEventById('9999', patches, 'D0623')
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('should handle errors in updateScheduleAttestation catch block', async () => {
+        mockAxios.onPatch().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'Schedule not found',
+          info: 'The requested schedule does not exist',
+        });
+        await expect(
+          lmsSevice.updateScheduleAttestation('9999', '9999', patches, 'D0623')
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('should handle errors in updateRegistration catch block', async () => {
+        mockAxios.onPatch().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'Registration not found',
+          info: 'The requested registration does not exist',
+        });
+        await expect(
+          lmsSevice.updateRegistration('9999', patches, 'D0623')
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('should handle errors in addDocument catch block', async () => {
+        mockAxios.onPost().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'Document not found',
+          info: 'The requested document does not exist',
+        });
+        await expect(
+          lmsSevice.addDocument('576', '4356', 'abcd', 'checkin', 'D0623')
+        ).rejects.toThrow(NotFoundException);
+      });
+    });
+
+    // Additional test cases: Testing all branches of handleAPIError switch statement
+    describe('when handleAPIError processes different HTTP status codes', () => {
+      it('should handle 404 status code correctly', async () => {
+        mockAxios.onGet().reply(HttpStatus.NOT_FOUND, {
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'Not found',
+          info: 'Resource not found',
+        });
+        await expect(lmsSevice.getEventById('1212')).rejects.toThrow(NotFoundException);
+      });
+
+      it('should handle 400 status code correctly', async () => {
+        mockAxios.onGet().reply(HttpStatus.BAD_REQUEST, {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Bad request',
+          info: 'Invalid request',
+        });
+        await expect(lmsSevice.getEventById('1212')).rejects.toThrow(BadRequestException);
+      });
+
+      it('should handle 409 status code correctly', async () => {
+        mockAxios.onPost().reply(HttpStatus.CONFLICT, {
+          statusCode: HttpStatus.CONFLICT,
+          message: 'Conflict',
+          info: 'Resource conflict',
+        });
+        await expect(
+          lmsSevice.addAgentToEvent('1122', mockRegistrationRequest, 'D0623')
+        ).rejects.toThrow(ConflictException);
+      });
+
+      it('should handle 500 status code correctly', async () => {
+        mockAxios.onGet().reply(HttpStatus.INTERNAL_SERVER_ERROR, {
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Internal server error',
+          info: 'Server error',
+        });
+        await expect(lmsSevice.getEventById('1212')).rejects.toThrow(
+          InternalServerErrorException
+        );
+      });
+
+      it('should handle unhandled status codes correctly', async () => {
+        mockAxios.onGet().reply(418, {
+          statusCode: 418,
+          message: "I'm a teapot",
+          info: 'Unhandled status',
+        });
+        await expect(lmsSevice.getEventById('1212')).rejects.toThrow();
+      });
+    });
   });
 });
