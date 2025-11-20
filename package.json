@@ -1,0 +1,111 @@
+cdescribe('addAgentToEvent error handling', () => {
+  let httpservice: jest.Mocked<HttpService>;
+  let service: YourServiceClass; // Replace with your actual service class name
+  
+  beforeEach(() => {
+    httpservice = {
+      post: jest.fn()
+    } as any;
+    
+    service = new YourServiceClass(httpservice);
+    service.lmsAPIBaseUrl = 'http://test-api.com';
+    service.handleAPIError = jest.fn();
+  });
+
+  it('should call handleAPIError when HTTP request fails with network error', async () => {
+    // Arrange
+    const mockError = new Error('Network error');
+    httpservice.post.mockRejectedValue(mockError);
+    
+    const eventId = 'event-123';
+    const registrationRequest = { /* your test request data */ };
+    const loggedInAgentId = 'agent-123';
+    
+    const expectedErrorResponse = { error: 'API Error' };
+    (service.handleAPIError as jest.Mock).mockReturnValue(expectedErrorResponse);
+
+    // Act
+    const result = await service.addAgentToEvent(eventId, registrationRequest, loggedInAgentId);
+
+    // Assert
+    expect(httpservice.post).toHaveBeenCalledWith(
+      'http://test-api.com/events/event-123/registrants',
+      registrationRequest,
+      {
+        headers: expect.anything()
+      }
+    );
+    expect(service.handleAPIError).toHaveBeenCalledWith(mockError);
+    expect(result).toBe(expectedErrorResponse);
+  });
+
+  it('should call handleAPIError when HTTP request fails with API error response', async () => {
+    // Arrange
+    const mockApiError = {
+      response: {
+        status: 400,
+        data: { message: 'Bad Request' }
+      }
+    };
+    httpservice.post.mockRejectedValue(mockApiError);
+    
+    const eventId = 'event-123';
+    const registrationRequest = { /* your test request data */ };
+    const loggedInAgentId = 'agent-123';
+    
+    const expectedErrorResponse = { error: 'Validation failed' };
+    (service.handleAPIError as jest.Mock).mockReturnValue(expectedErrorResponse);
+
+    // Act
+    const result = await service.addAgentToEvent(eventId, registrationRequest, loggedInAgentId);
+
+    // Assert
+    expect(service.handleAPIError).toHaveBeenCalledWith(mockApiError);
+    expect(result).toBe(expectedErrorResponse);
+  });
+
+  it('should call handleAPIError when HTTP request fails with 500 error', async () => {
+    // Arrange
+    const mockServerError = {
+      response: {
+        status: 500,
+        data: { message: 'Internal Server Error' }
+      }
+    };
+    httpservice.post.mockRejectedValue(mockServerError);
+    
+    const eventId = 'event-123';
+    const registrationRequest = { /* your test request data */ };
+    const loggedInAgentId = 'agent-123';
+    
+    const expectedErrorResponse = { error: 'Server error' };
+    (service.handleAPIError as jest.Mock).mockReturnValue(expectedErrorResponse);
+
+    // Act
+    const result = await service.addAgentToEvent(eventId, registrationRequest, loggedInAgentId);
+
+    // Assert
+    expect(service.handleAPIError).toHaveBeenCalledWith(mockServerError);
+    expect(result).toBe(expectedErrorResponse);
+  });
+
+  it('should call handleAPIError when buildRequestHeaders throws error', async () => {
+    // Arrange
+    const eventId = 'event-123';
+    const registrationRequest = { /* your test request data */ };
+    const loggedInAgentId = 'agent-123';
+    
+    // Mock buildRequestHeaders to throw an error
+    service.buildRequestHeaders = jest.fn().mockRejectedValue(new Error('Header build failed'));
+    
+    const expectedErrorResponse = { error: 'Header build failed' };
+    (service.handleAPIError as jest.Mock).mockReturnValue(expectedErrorResponse);
+
+    // Act
+    const result = await service.addAgentToEvent(eventId, registrationRequest, loggedInAgentId);
+
+    // Assert
+    expect(service.handleAPIError).toHaveBeenCalled();
+    expect(result).toBe(expectedErrorResponse);
+  });
+});
