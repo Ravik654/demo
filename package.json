@@ -44,6 +44,7 @@ describe('LmsService', () => {
   describe('when a valid config provided', () => {
     beforeEach(async () => {
       mockCommonTokenService = mock<CommonTokenService>();
+      mockCommonTokenService.getAccessToken.mockResolvedValue('mock-token');
       module = await Test.createTestingModule({
         imports: [CommonConfigModule.register(), CommonHttpModule, CommonTokenModule],
         providers: [LmsService],
@@ -313,7 +314,8 @@ describe('LmsService', () => {
 
       it('should handle empty agents array gracefully', async () => {
         mockAxios.onGet().reply(HttpStatus.OK, { agents: [] });
-        await expect(lmsSevice.getAgentById('9999')).rejects.toThrow();
+        const result = await lmsSevice.getAgentById('9999');
+        expect(result).toBeUndefined();
       });
     });
 
@@ -323,45 +325,50 @@ describe('LmsService', () => {
         mockAxios.onGet().reply(HttpStatus.OK, cloneDeep(mockAgentsResponse));
         const agents = await lmsSevice.searchAgents('John', undefined, undefined);
         expect(agents).toEqual(mockAgentsResponse);
-        expect(mockAxios.history.get[0].url).toContain('firstName=John');
-        expect(mockAxios.history.get[0].url).not.toContain('lastName');
-        expect(mockAxios.history.get[0].url).not.toContain('lastFourSsn');
+        expect(mockAxios.history.get[0]?.url).toBeDefined();
+        expect(mockAxios.history.get[0]!.url).toContain('firstName=John');
+        expect(mockAxios.history.get[0]!.url).not.toContain('lastName');
+        expect(mockAxios.history.get[0]!.url).not.toContain('lastFourSsn');
       });
 
       it('should search agents with only lastName', async () => {
         mockAxios.onGet().reply(HttpStatus.OK, cloneDeep(mockAgentsResponse));
         const agents = await lmsSevice.searchAgents(undefined, 'Doe', undefined);
         expect(agents).toEqual(mockAgentsResponse);
-        expect(mockAxios.history.get[0].url).toContain('lastName=Doe');
-        expect(mockAxios.history.get[0].url).not.toContain('firstName');
-        expect(mockAxios.history.get[0].url).not.toContain('lastFourSsn');
+        expect(mockAxios.history.get[0]?.url).toBeDefined();
+        expect(mockAxios.history.get[0]!.url).toContain('lastName=Doe');
+        expect(mockAxios.history.get[0]!.url).not.toContain('firstName');
+        expect(mockAxios.history.get[0]!.url).not.toContain('lastFourSsn');
       });
 
       it('should search agents with only ssnLastFour', async () => {
         mockAxios.onGet().reply(HttpStatus.OK, cloneDeep(mockAgentsResponse));
         const agents = await lmsSevice.searchAgents(undefined, undefined, '1234');
         expect(agents).toEqual(mockAgentsResponse);
-        expect(mockAxios.history.get[0].url).toContain('lastFourSsn=1234');
-        expect(mockAxios.history.get[0].url).not.toContain('firstName');
-        expect(mockAxios.history.get[0].url).not.toContain('lastName');
+        expect(mockAxios.history.get[0]?.url).toBeDefined();
+        expect(mockAxios.history.get[0]!.url).toContain('lastFourSsn=1234');
+        expect(mockAxios.history.get[0]!.url).not.toContain('firstName');
+        expect(mockAxios.history.get[0]!.url).not.toContain('lastName');
       });
 
       it('should search agents with all parameters', async () => {
         mockAxios.onGet().reply(HttpStatus.OK, cloneDeep(mockAgentsResponse));
         const agents = await lmsSevice.searchAgents('John', 'Doe', '1234');
         expect(agents).toEqual(mockAgentsResponse);
-        expect(mockAxios.history.get[0].url).toContain('firstName=John');
-        expect(mockAxios.history.get[0].url).toContain('lastName=Doe');
-        expect(mockAxios.history.get[0].url).toContain('lastFourSsn=1234');
+        expect(mockAxios.history.get[0]?.url).toBeDefined();
+        expect(mockAxios.history.get[0]!.url).toContain('firstName=John');
+        expect(mockAxios.history.get[0]!.url).toContain('lastName=Doe');
+        expect(mockAxios.history.get[0]!.url).toContain('lastFourSsn=1234');
       });
 
       it('should search agents with no parameters', async () => {
         mockAxios.onGet().reply(HttpStatus.OK, cloneDeep(mockAgentsResponse));
         const agents = await lmsSevice.searchAgents(undefined, undefined, undefined);
         expect(agents).toEqual(mockAgentsResponse);
-        expect(mockAxios.history.get[0].url).not.toContain('firstName');
-        expect(mockAxios.history.get[0].url).not.toContain('lastName');
-        expect(mockAxios.history.get[0].url).not.toContain('lastFourSsn');
+        expect(mockAxios.history.get[0]?.url).toBeDefined();
+        expect(mockAxios.history.get[0]!.url).not.toContain('firstName');
+        expect(mockAxios.history.get[0]!.url).not.toContain('lastName');
+        expect(mockAxios.history.get[0]!.url).not.toContain('lastFourSsn');
       });
     });
 
@@ -819,7 +826,7 @@ describe('LmsService', () => {
         const originalGet = axiosInstance.get;
         const axiosError = new Error('Network Error') as AxiosError;
         axiosError.isAxiosError = true;
-        axiosError.config = { url: 'http://test.com' };
+        axiosError.config = { url: 'http://test.com', headers: {} };
         axiosInstance.get = jest.fn().mockRejectedValue(axiosError);
         await expect(lmsSevice.getEventById('1212')).rejects.toThrow(NotFoundException);
         axiosInstance.get = originalGet;
@@ -835,9 +842,9 @@ describe('LmsService', () => {
           status: 404,
           statusText: 'Not Found',
           headers: {},
-          config: { url: 'http://test.com' },
+          config: { url: 'http://test.com', headers: {} },
         };
-        axiosError.config = { url: 'http://test.com' };
+        axiosError.config = { url: 'http://test.com', headers: {} };
         axiosInstance.get = jest.fn().mockRejectedValue(axiosError);
         await expect(lmsSevice.getEventById('1212')).rejects.toThrow(NotFoundException);
         axiosInstance.get = originalGet;
@@ -853,9 +860,9 @@ describe('LmsService', () => {
           status: 404,
           statusText: 'Not Found',
           headers: {},
-          config: { url: 'http://test.com' },
+          config: { url: 'http://test.com', headers: {} },
         };
-        axiosError.config = { url: 'http://test.com' };
+        axiosError.config = { url: 'http://test.com', headers: {} };
         axiosInstance.get = jest.fn().mockRejectedValue(axiosError);
         await expect(lmsSevice.getEventById('1212')).rejects.toThrow(NotFoundException);
         axiosInstance.get = originalGet;
@@ -865,7 +872,7 @@ describe('LmsService', () => {
     // Additional test cases: Comprehensive testing of handleAPIError - statusCode edge cases
     describe('when handleAPIError receives errors with non-number statusCode', () => {
       it('should use INTERNAL_SERVER_ERROR when statusCode is not a number', async () => {
-        mockAxios.onGet().reply(HttpStatus.INTERNAL_SERVER_ERROR, {
+        mockAxios.onGet(/.*/).reply(HttpStatus.INTERNAL_SERVER_ERROR, {
           statusCode: 'invalid',
           message: 'Error',
           info: 'Invalid status code',
@@ -876,7 +883,7 @@ describe('LmsService', () => {
       });
 
       it('should use INTERNAL_SERVER_ERROR when statusCode is undefined', async () => {
-        mockAxios.onGet().reply(HttpStatus.INTERNAL_SERVER_ERROR, {
+        mockAxios.onGet(/.*/).reply(HttpStatus.INTERNAL_SERVER_ERROR, {
           message: 'Error',
           info: 'No status code',
         });
@@ -903,9 +910,9 @@ describe('LmsService', () => {
           status: 400,
           statusText: 'Bad Request',
           headers: {},
-          config: { url: 'http://test.com' },
+          config: { url: 'http://test.com', headers: {} },
         };
-        axiosError.config = { url: 'http://test.com' };
+        axiosError.config = { url: 'http://test.com', headers: {} };
         axiosInstance.get = jest.fn().mockRejectedValue(axiosError);
         await expect(lmsSevice.getEventById('1212')).rejects.toThrow();
         axiosInstance.get = originalGet;
@@ -928,9 +935,13 @@ describe('LmsService', () => {
           status: 400,
           statusText: 'Bad Request',
           headers: {},
-          config: {},
+          config: {
+            headers: {},
+          },
         };
-        axiosError.config = {};
+        axiosError.config = {
+          headers: {},
+        };
         axiosInstance.get = jest.fn().mockRejectedValue(axiosError);
         await expect(lmsSevice.getEventById('1212')).rejects.toThrow(BadRequestException);
         axiosInstance.get = originalGet;
@@ -1006,7 +1017,7 @@ describe('LmsService', () => {
     // Additional test cases: Testing all branches of handleAPIError switch statement
     describe('when handleAPIError processes different HTTP status codes', () => {
       it('should handle 404 status code correctly', async () => {
-        mockAxios.onGet().reply(HttpStatus.NOT_FOUND, {
+        mockAxios.onGet(/.*/).reply(HttpStatus.NOT_FOUND, {
           statusCode: HttpStatus.NOT_FOUND,
           message: 'Not found',
           info: 'Resource not found',
@@ -1015,7 +1026,7 @@ describe('LmsService', () => {
       });
 
       it('should handle 400 status code correctly', async () => {
-        mockAxios.onGet().reply(HttpStatus.BAD_REQUEST, {
+        mockAxios.onGet(/.*/).reply(HttpStatus.BAD_REQUEST, {
           statusCode: HttpStatus.BAD_REQUEST,
           message: 'Bad request',
           info: 'Invalid request',
@@ -1024,7 +1035,7 @@ describe('LmsService', () => {
       });
 
       it('should handle 409 status code correctly', async () => {
-        mockAxios.onPost().reply(HttpStatus.CONFLICT, {
+        mockAxios.onPost(/.*/).reply(HttpStatus.CONFLICT, {
           statusCode: HttpStatus.CONFLICT,
           message: 'Conflict',
           info: 'Resource conflict',
@@ -1035,7 +1046,7 @@ describe('LmsService', () => {
       });
 
       it('should handle 500 status code correctly', async () => {
-        mockAxios.onGet().reply(HttpStatus.INTERNAL_SERVER_ERROR, {
+        mockAxios.onGet(/.*/).reply(HttpStatus.INTERNAL_SERVER_ERROR, {
           statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
           message: 'Internal server error',
           info: 'Server error',
@@ -1046,7 +1057,7 @@ describe('LmsService', () => {
       });
 
       it('should handle unhandled status codes correctly', async () => {
-        mockAxios.onGet().reply(418, {
+        mockAxios.onGet(/.*/).reply(418, {
           statusCode: 418,
           message: "I'm a teapot",
           info: 'Unhandled status',
