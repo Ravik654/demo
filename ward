@@ -1,10 +1,10 @@
-   it('should handle errors in addAgentToEvent catch block', async () => {
-        mockAxios.onPost().reply(HttpStatus.NOT_FOUND, {
+  it('should handle errors in updateEventById catch block', async () => {
+        mockAxios.onPatch().reply(HttpStatus.NOT_FOUND, {
           statusCode: HttpStatus.NOT_FOUND,
           message: 'Event not found',
           info: 'The requested event does not exist',
         });
         await expect(
-          lmsSevice.addAgentToEvent('9999', mockRegistrationRequest, 'D0623')
+          lmsSevice.updateEventById('9999', patches, 'D0623')
         ).rejects.toThrow(NotFoundException);
       });
