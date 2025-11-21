@@ -1,10 +1,86 @@
-  it('should handle errors in updateEventById catch block', async () => {
-        mockAxios.onPatch().reply(HttpStatus.NOT_FOUND, {
-          statusCode: HttpStatus.NOT_FOUND,
-          message: 'Event not found',
-          info: 'The requested event does not exist',
+ describe('when handleAPIError is called with different status codes', () => {
+      describe('when statusCode is BAD_REQUEST (400)', () => {
+        it('should throw BadRequestException', async () => {
+          mockAxios.onGet().reply(HttpStatus.BAD_REQUEST, {
+            statusCode: HttpStatus.BAD_REQUEST,
+            message: 'Bad request',
+            info: 'Invalid input parameters',
+          });
+          await expect(lmsSevice.getEventById('1212')).rejects.toThrow(
+            BadRequestException
+          );
         });
-        await expect(
-          lmsSevice.updateEventById('9999', patches, 'D0623')
-        ).rejects.toThrow(NotFoundException);
       });
+
+      describe('when statusCode is CONFLICT (409)', () => {
+        it('should throw ConflictException', async () => {
+          mockAxios.onGet().reply(HttpStatus.CONFLICT, {
+            statusCode: HttpStatus.CONFLICT,
+            message: 'Conflict',
+            info: 'Resource already exists',
+          });
+          await expect(lmsSevice.getEventById('1212')).rejects.toThrow(
+            ConflictException
+          );
+        });
+      });
+
+      describe('when statusCode is INTERNAL_SERVER_ERROR (500)', () => {
+        it('should throw InternalServerErrorException when err.status is not 400', async () => {
+          mockAxios.onGet().reply(HttpStatus.INTERNAL_SERVER_ERROR, {
+            statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+            message: 'Internal server error',
+            info: 'Something went wrong',
+          });
+          await expect(lmsSevice.getEventById('1212')).rejects.toThrow(
+            InternalServerErrorException
+          );
+        });
+
+        it('should throw HttpException with "Invalid Input" message when err.status is 400', async () => {
+          const axiosInstance = module.get<AxiosInstance>(AXIOS_INSTANCE_TOKEN);
+          jest.spyOn(axiosInstance, 'get').mockImplementation(() => {
+            const error: any = new Error('Request failed');
+            error.response = {
+              status: 500,
+              statusText: 'Internal Server Error',
+              data: {
+                statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+                message: 'Internal server error',
+                info: 'Server error',
+              },
+              headers: {},
+              config: { url: 'http://test.com/api/events/1212' },
+            };
+            error.status = 400;
+            error.config = { url: 'http://test.com/api/events/1212' };
+            error.isAxiosError = true;
+            error.toJSON = () => ({});
+            return Promise.reject(error);
+          });
+
+          try {
+            await lmsSevice.getEventById('1212');
+            expect(true).toBe(false); // Should not reach here
+          } catch (error) {
+            expect(error).toBeInstanceOf(HttpException);
+            expect((error as HttpException).getStatus()).toBe(400);
+            expect((error as HttpException).getResponse()).toMatchObject({
+              message: 'Invalid Input',
+              statusCode: 400,
+            });
+          }
+        });
+      });
+
+      describe('when statusCode is a default case (not handled specifically)', () => {
+        it('should throw HttpException with the statusCode', async () => {
+          mockAxios.onGet().reply(HttpStatus.UNAUTHORIZED, {
+            statusCode: HttpStatus.UNAUTHORIZED,
+            message: 'Unauthorized',
+            info: 'Authentication required',
+          });
+          await expect(lmsSevice.getEventById('1212')).rejects.toThrow(HttpException);
+        });
+      });
+    });
