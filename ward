@@ -11,12 +11,13 @@ import {
 import {
   BadRequestException,
   HttpStatus,
+   
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { mock, MockProxy } from 'jest-mock-extended';
-import { AxiosInstance } from 'axios';
+import { AxiosInstance, AxiosError } from 'axios';
 import { Readable } from 'stream';
 import { ContentManagerRetrievalService } from '../contentmanager.retrieval.service';
 
@@ -69,24 +70,39 @@ describe('ContentManagerRetrievalService', () => {
         const mockStream = new Readable();
         mockStream.push('mock data');
         mockStream.push(null);
-        // Use MockAdapter to intercept the request
-        // When responseType is 'stream', axios expects response.data to be the stream
-        mockAxios.onGet().reply((config) => {
-          // Return the stream as the response data
-          return [HttpStatus.OK, mockStream];
-        });
+        
+        // Mock httpService.get to return proper response structure for stream
+        const mockResponse = {
+          data: mockStream,
+          status: HttpStatus.OK,
+          statusText: 'OK',
+          headers: {},
+          config: {} as any,
+        };
+        
+        jest.spyOn(httpService, 'get').mockResolvedValue(mockResponse as any);
+        
         const result = await contentMgrRetrievalService.retrieveDocument(
           '1212',
           'application/pdf'
         );
+        
         expect(result).toBeDefined();
-        expect(mockAxios.history.get).toHaveLength(1);
+        expect(result).toBe(mockStream);
+        expect(httpService.get).toHaveBeenCalledWith(
+          'http://test-contentmanager.com/documents/1212',
+          expect.objectContaining({
+            headers: expect.any(Object),
+            responseType: 'stream',
+          })
+        );
         expect(mockCommonTokenService.getAccessToken).toHaveBeenCalled();
       });
 
       it('should fail gracefully for not found error from pass thru api', async () => {
-        // Match any GET request and return NOT_FOUND
-        mockAxios.onGet().reply(HttpStatus.NOT_FOUND);
+        // Use MockAdapter to create a real AxiosError that will pass isAxiosError check
+        mockAxios.onGet().reply(HttpStatus.NOT_FOUND, { message: 'Not Found' });
+        
         await expect(
           contentMgrRetrievalService.retrieveDocument('00', 'application/pdf')
         ).rejects.toThrow(NotFoundException);
@@ -95,8 +111,9 @@ describe('ContentManagerRetrievalService', () => {
       });
 
       it('should fail gracefully for bad request error from pass thru api', async () => {
-        // Match any GET request and return BAD_REQUEST
-        mockAxios.onGet().reply(HttpStatus.BAD_REQUEST);
+        // Use MockAdapter to create a real AxiosError that will pass isAxiosError check
+        mockAxios.onGet().reply(HttpStatus.BAD_REQUEST, { message: 'Bad Request' });
+        
         await expect(
           contentMgrRetrievalService.retrieveDocument('88', 'application/pdf')
         ).rejects.toThrow(InternalServerErrorException);
@@ -105,8 +122,9 @@ describe('ContentManagerRetrievalService', () => {
       });
 
       it('should fail gracefully for system error from pass thru api', async () => {
-        // Match any GET request and return INTERNAL_SERVER_ERROR
-        mockAxios.onGet().reply(HttpStatus.INTERNAL_SERVER_ERROR);
+        // Use MockAdapter to create a real AxiosError that will pass isAxiosError check
+        mockAxios.onGet().reply(HttpStatus.INTERNAL_SERVER_ERROR, { message: 'Internal Server Error' });
+        
         await expect(
           contentMgrRetrievalService.retrieveDocument('1212', 'application/pdf')
         ).rejects.toThrow();
