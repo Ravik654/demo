@@ -17,7 +17,7 @@ import {
 import { mock, MockProxy } from 'jest-mock-extended';
 import { AxiosInstance, AxiosError } from 'axios';
 import { Readable } from 'stream';
-
+import { describe, beforeEach, afterEach, it, expect, jest, spyOn } from 'jest';
 describe('ContentManagerRetrievalService', () => {
   let module: TestingModule;
   let service: ContentManagerRetrievalService;
@@ -148,7 +148,7 @@ describe('ContentManagerRetrievalService', () => {
       });
 
       it('should handle axios error with undefined response', async () => {
-        // Create a network error (no response) by using networkError
+        // Create a network error (no response)
         const axiosInstance = module.get<AxiosInstance>(AXIOS_INSTANCE_TOKEN);
         const networkError = new Error('Network Error') as AxiosError;
         networkError.isAxiosError = true;
@@ -186,7 +186,7 @@ describe('ContentManagerRetrievalService', () => {
         );
       });
 
-      it('should build request headers with correct Content-Type and Authorization', async () => {
+      it('should build request headers with correct Content-Type and Authorization through retrieveDocument', async () => {
         const mockStream = new Readable();
         mockStream.push('test data');
         mockStream.push(null);
@@ -236,13 +236,34 @@ describe('ContentManagerRetrievalService', () => {
     });
 
     describe('buildRequestHeaders', () => {
-      it('should return headers with Content-Type and Authorization', async () => {
+      it('should return headers with Content-Type and Authorization via private method', async () => {
         const contentType = 'application/json';
         const accessToken = 'test-token-123';
         mockCommonTokenService.getAccessToken.mockResolvedValue(accessToken);
 
-        // Access private method through reflection or test it indirectly
-        // Since it's private, we test it through retrieveDocument
+        // Directly invoke the private method using index access
+        const headers = await (service as any)['buildRequestHeaders'](contentType);
+
+        expect(mockCommonTokenService.getAccessToken).toHaveBeenCalledTimes(1);
+        expect(headers['Content-Type']).toBe(contentType);
+        expect(headers['Authorization']).toBe(`Bearer ${accessToken}`);
+      });
+
+      it('should call getAccessToken from commonTokenService when building headers', async () => {
+        const contentType = 'application/pdf';
+        const accessToken = 'another-mock-token';
+        mockCommonTokenService.getAccessToken.mockResolvedValue(accessToken);
+
+        await (service as any)['buildRequestHeaders'](contentType);
+
+        expect(mockCommonTokenService.getAccessToken).toHaveBeenCalledTimes(1);
+      });
+
+      it('should be used by retrieveDocument to set request headers correctly', async () => {
+        const contentType = 'application/xml';
+        const accessToken = 'xml-token';
+        mockCommonTokenService.getAccessToken.mockResolvedValue(accessToken);
+
         const mockStream = new Readable();
         mockStream.push('test data');
         mockStream.push(null);
@@ -253,26 +274,12 @@ describe('ContentManagerRetrievalService', () => {
 
         await service.retrieveDocument('test-id', contentType);
 
-        expect(mockCommonTokenService.getAccessToken).toHaveBeenCalled();
         const request = mockAxios.history.get[0];
         expect(request.headers?.['Content-Type']).toBe(contentType);
         expect(request.headers?.['Authorization']).toBe(`Bearer ${accessToken}`);
       });
-
-      it('should call getAccessToken from commonTokenService', async () => {
-        const mockStream = new Readable();
-        mockStream.push('test data');
-        mockStream.push(null);
-
-        mockAxios
-          .onGet('https://test-contentmanager.com/documents/test-id')
-          .reply(HttpStatus.OK, mockStream);
-
-        await service.retrieveDocument('test-id', 'application/pdf');
-
-        expect(mockCommonTokenService.getAccessToken).toHaveBeenCalledTimes(1);
-      });
     });
   });
 });
+
 
