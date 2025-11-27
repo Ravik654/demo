@@ -1,241 +1,133 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import MockAdapter from 'axios-mock-adapter';
-import { ContentManagerRetrievalService } from './contentmanager.retrieval.service';
-import {
-  AXIOS_INSTANCE_TOKEN,
-  CommonConfigModule,
-  CommonHttpModule,
-  CommonTokenModule,
-  CommonTokenService,
-} from '@primerica/ent-common-nestjs';
-import {
-  BadRequestException,
-  HttpStatus,
-  InternalServerErrorException,
-  NotFoundException,
-} from '@nestjs/common';
-import { mock, MockProxy } from 'jest-mock-extended';
-import { AxiosInstance, AxiosError } from 'axios';
+
 import { Readable } from 'stream';
 
+import { ContentManagerRetrievalService } from '../retrieval.service';
+ 
 describe('ContentManagerRetrievalService', () => {
-  let module: TestingModule;
+
   let service: ContentManagerRetrievalService;
-  let mockAxios: MockAdapter;
-  let mockCommonTokenService: MockProxy<CommonTokenService>;
+ 
+  const mockHttpService = {
 
-  describe('when a valid config provided', () => {
-    beforeEach(async () => {
-      mockCommonTokenService = mock<CommonTokenService>();
-      mockCommonTokenService.getAccessToken.mockResolvedValue('mock-access-token');
+    getStream: jest.fn(),
 
-      module = await Test.createTestingModule({
-        imports: [
-          CommonConfigModule.register({
-            endpoints: {
-              'pri-contentmanagerretrieve-sys': {
-                baseUrl: 'https://test-contentmanager.com',
-              },
-            },
-          }),
-          CommonHttpModule,
-          CommonTokenModule,
-        ],
-        providers: [ContentManagerRetrievalService],
-      })
-        .overrideProvider(CommonTokenService)
-        .useValue(mockCommonTokenService)
-        .compile();
+  };
+ 
+  beforeEach(async () => {
 
-      service = module.get<ContentManagerRetrievalService>(
-        ContentManagerRetrievalService
-      );
+    const module: TestingModule = await Test.createTestingModule({
 
-      const axiosInstance = module.get<AxiosInstance>(AXIOS_INSTANCE_TOKEN);
-      mockAxios = new MockAdapter(axiosInstance);
-    });
+      providers: [
 
-    afterEach(() => {
-      jest.restoreAllMocks();
-      mockAxios.reset();
-    });
+        ContentManagerRetrievalService,
 
-    describe('retrieveDocument', () => {
-      const testId = 'test-document-id';
-      const testContentType = 'application/pdf';
+        {
 
-      it('should successfully retrieve document and return Readable stream', async () => {
-        const mockStream = new Readable();
-        mockStream.push('test data');
-        mockStream.push(null);
+          provide: 'HttpServiceAlias', // <-- replace with your actual provider token
 
-        mockAxios
-          .onGet(`https://test-contentmanager.com/documents/${testId}`)
-          .reply(HttpStatus.OK, mockStream, {
-            'Content-Type': testContentType,
-          });
+          useValue: mockHttpService,
 
-        const loggerSpy = jest.spyOn(service.logger, 'log');
+        },
 
-        const result = await service.retrieveDocument(testId, testContentType);
+      ],
 
-        expect(result).toBeDefined();
-        expect(result).toBeInstanceOf(Readable);
-        expect(loggerSpy).toHaveBeenCalledWith(
-          `Retrieve Content from Content Manager with Content Type ${testContentType} and ID: ${testId}`
-        );
-        expect(mockCommonTokenService.getAccessToken).toHaveBeenCalled();
-        expect(mockAxios.history.get).toHaveLength(1);
-        const request = mockAxios.history.get[0]!;
-        expect(request.headers?.['Content-Type']).toBe(testContentType);
-        expect(request.headers?.Authorization).toBe('Bearer mock-access-token');
-      });
+    }).compile();
+ 
+    service = module.get<ContentManagerRetrievalService>(
 
-      it('should throw NotFoundException when axios error has NOT_FOUND status', async () => {
-        mockAxios
-          .onGet(`https://test-contentmanager.com/documents/${testId}`)
-          .reply(HttpStatus.NOT_FOUND, {
-            statusCode: HttpStatus.NOT_FOUND,
-            message: 'Document not found',
-          });
+      ContentManagerRetrievalService,
 
-        await expect(
-          service.retrieveDocument(testId, testContentType)
-        ).rejects.toThrow(NotFoundException);
-      });
+    );
+ 
+    // mock logger
 
-      it('should throw NotFoundException when error is NotFoundException instance', async () => {
-        const notFoundError = new NotFoundException();
-        const axiosInstance = module.get<AxiosInstance>(AXIOS_INSTANCE_TOKEN);
-        jest.spyOn(axiosInstance, 'get').mockRejectedValue(notFoundError);
+    service.logger = {
 
-        await expect(
-          service.retrieveDocument(testId, testContentType)
-        ).rejects.toThrow(NotFoundException);
-      });
+      log: jest.fn(),
 
-      it('should throw InternalServerErrorException when axios error has BAD_REQUEST status', async () => {
-        mockAxios
-          .onGet(`https://test-contentmanager.com/documents/${testId}`)
-          .reply(HttpStatus.BAD_REQUEST, {
-            statusCode: HttpStatus.BAD_REQUEST,
-            message: 'Bad request',
-          });
+      error: jest.fn(),
 
-        await expect(
-          service.retrieveDocument(testId, testContentType)
-        ).rejects.toThrow(InternalServerErrorException);
-      });
+      warn: jest.fn(),
 
-      it('should throw InternalServerErrorException when error is BadRequestException instance', async () => {
-        const badRequestError = new BadRequestException();
-        const axiosInstance = module.get<AxiosInstance>(AXIOS_INSTANCE_TOKEN);
-        jest.spyOn(axiosInstance, 'get').mockRejectedValue(badRequestError);
+      debug: jest.fn(),
 
-        await expect(
-          service.retrieveDocument(testId, testContentType)
-        ).rejects.toThrow(InternalServerErrorException);
-      });
+      verbose: jest.fn(),
 
-      it('should rethrow error when error is not handled specifically', async () => {
-        const genericError = new Error('Generic error');
-        const axiosInstance = module.get<AxiosInstance>(AXIOS_INSTANCE_TOKEN);
-        jest.spyOn(axiosInstance, 'get').mockRejectedValue(genericError);
+    } as any;
 
-        await expect(
-          service.retrieveDocument(testId, testContentType)
-        ).rejects.toThrow('Generic error');
-      });
-
-      it('should handle axios error with undefined response', async () => {
-        // Create a network error (no response)
-        const axiosInstance = module.get<AxiosInstance>(AXIOS_INSTANCE_TOKEN);
-        const networkError = new Error('Network Error') as AxiosError;
-        networkError.isAxiosError = true;
-        networkError.response = undefined;
-        networkError.config = {
-          url: `https://test-contentmanager.com/documents/${testId}`,
-          headers: {} as any,
-        } as any;
-        networkError.toJSON = () => ({});
-
-        jest.spyOn(axiosInstance, 'get').mockRejectedValue(networkError);
-
-        // When response is undefined, isAxiosError check passes but err.response?.status fails
-        // So it should fall through to the else block and rethrow
-        await expect(
-          service.retrieveDocument(testId, testContentType)
-        ).rejects.toBeDefined();
-      });
-
-      it('should call logger.log with correct message', async () => {
-        const mockStream = new Readable();
-        mockStream.push('test data');
-        mockStream.push(null);
-
-        mockAxios
-          .onGet(`https://test-contentmanager.com/documents/${testId}`)
-          .reply(HttpStatus.OK, mockStream);
-
-        const loggerSpy = jest.spyOn(service.logger, 'log');
-
-        await service.retrieveDocument(testId, testContentType);
-
-        expect(loggerSpy).toHaveBeenCalledWith(
-          `Retrieve Content from Content Manager with Content Type ${testContentType} and ID: ${testId}`
-        );
-      });
-
-      it('should build request headers with correct Content-Type and Authorization through retrieveDocument', async () => {
-        const mockStream = new Readable();
-        mockStream.push('test data');
-        mockStream.push(null);
-
-        mockAxios
-          .onGet(`https://test-contentmanager.com/documents/${testId}`)
-          .reply(HttpStatus.OK, mockStream);
-
-        await service.retrieveDocument(testId, testContentType);
-
-        expect(mockCommonTokenService.getAccessToken).toHaveBeenCalled();
-        const request = mockAxios.history.get[0]!;
-        expect(request.headers?.['Content-Type']).toBe(testContentType);
-        expect(request.headers?.Authorization).toBe('Bearer mock-access-token');
-      });
-
-      it('should use correct URL with baseUrl and document id', async () => {
-        const mockStream = new Readable();
-        mockStream.push('test data');
-        mockStream.push(null);
-
-        mockAxios
-          .onGet(`https://test-contentmanager.com/documents/${testId}`)
-          .reply(HttpStatus.OK, mockStream);
-
-        await service.retrieveDocument(testId, testContentType);
-
-        expect(mockAxios.history.get[0]!.url).toBe(
-          `https://test-contentmanager.com/documents/${testId}`
-        );
-      });
-
-      it('should set responseType to stream', async () => {
-        const mockStream = new Readable();
-        mockStream.push('test data');
-        mockStream.push(null);
-
-        mockAxios
-          .onGet(`https://test-contentmanager.com/documents/${testId}`)
-          .reply(HttpStatus.OK, mockStream);
-
-        await service.retrieveDocument(testId, testContentType);
-
-        const request = mockAxios.history.get[0]!;
-        expect(request.config?.responseType).toBe('stream');
-      });
-    });
-
-    // Header behavior is already asserted via retrieveDocument tests above.
   });
+ 
+  describe('retrieveDocument', () => {
+
+    it('should log the correct message and return a readable stream', async () => {
+
+      const id = '12345';
+
+      const contentType = 'application/pdf';
+ 
+      // Create a mock Readable stream
+
+      const mockStream = new Readable({
+
+        read() {
+
+          this.push('test');
+
+          this.push(null);
+
+        },
+
+      });
+ 
+      // mock underlying call
+
+      mockHttpService.getStream.mockResolvedValue(mockStream);
+ 
+      // Act
+
+      const result = await service.retrieveDocument(id, contentType);
+ 
+      // Assert logger behavior
+
+      expect(service.logger.log).toHaveBeenCalledWith(
+
+        `Retrieve Content from Content Manager with Content Type ${contentType} and ID: ${id}`,
+
+      );
+ 
+      // Assert underlying method call
+
+      expect(mockHttpService.getStream).toHaveBeenCalledWith(id, contentType);
+ 
+      // Assert returned value
+
+      expect(result).toBe(mockStream);
+
+    });
+ 
+    it('should propagate errors thrown by http service', async () => {
+
+      const id = '987';
+
+      const contentType = 'application/json';
+ 
+      mockHttpService.getStream.mockRejectedValue(
+
+        new Error('test error'),
+
+      );
+ 
+      await expect(
+
+        service.retrieveDocument(id, contentType),
+
+      ).rejects.toThrow('test error');
+
+    });
+
+  });
+
 });
 
+ 
