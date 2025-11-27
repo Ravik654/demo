@@ -75,7 +75,7 @@ describe('ContentManagerRetrievalService', () => {
             'Content-Type': testContentType,
           });
 
-        const loggerSpy = jest.spyOn(service['logger'], 'log');
+        const loggerSpy = jest.spyOn(service.logger, 'log');
 
         const result = await service.retrieveDocument(testId, testContentType);
 
@@ -88,7 +88,7 @@ describe('ContentManagerRetrievalService', () => {
         expect(mockAxios.history.get).toHaveLength(1);
         const request = mockAxios.history.get[0]!;
         expect(request.headers?.['Content-Type']).toBe(testContentType);
-        expect(request.headers?.['Authorization']).toBe('Bearer mock-access-token');
+        expect(request.headers?.Authorization).toBe('Bearer mock-access-token');
       });
 
       it('should throw NotFoundException when axios error has NOT_FOUND status', async () => {
@@ -177,7 +177,7 @@ describe('ContentManagerRetrievalService', () => {
           .onGet(`https://test-contentmanager.com/documents/${testId}`)
           .reply(HttpStatus.OK, mockStream);
 
-        const loggerSpy = jest.spyOn(service['logger'], 'log');
+        const loggerSpy = jest.spyOn(service.logger, 'log');
 
         await service.retrieveDocument(testId, testContentType);
 
@@ -200,7 +200,7 @@ describe('ContentManagerRetrievalService', () => {
         expect(mockCommonTokenService.getAccessToken).toHaveBeenCalled();
         const request = mockAxios.history.get[0]!;
         expect(request.headers?.['Content-Type']).toBe(testContentType);
-        expect(request.headers?.['Authorization']).toBe('Bearer mock-access-token');
+        expect(request.headers?.Authorization).toBe('Bearer mock-access-token');
       });
 
       it('should use correct URL with baseUrl and document id', async () => {
@@ -235,50 +235,7 @@ describe('ContentManagerRetrievalService', () => {
       });
     });
 
-    describe('buildRequestHeaders', () => {
-      it('should return headers with Content-Type and Authorization via private method', async () => {
-        const contentType = 'application/json';
-        const accessToken = 'test-token-123';
-        mockCommonTokenService.getAccessToken.mockResolvedValue(accessToken);
-
-        // Directly invoke the private method using index access
-        const headers = await (service as any)['buildRequestHeaders'](contentType);
-
-        expect(mockCommonTokenService.getAccessToken).toHaveBeenCalledTimes(1);
-        expect(headers['Content-Type']).toBe(contentType);
-        expect(headers['Authorization']).toBe(`Bearer ${accessToken}`);
-      });
-
-      it('should call getAccessToken from commonTokenService when building headers', async () => {
-        const contentType = 'application/pdf';
-        const accessToken = 'another-mock-token';
-        mockCommonTokenService.getAccessToken.mockResolvedValue(accessToken);
-
-        await (service as any)['buildRequestHeaders'](contentType);
-
-        expect(mockCommonTokenService.getAccessToken).toHaveBeenCalledTimes(1);
-      });
-
-      it('should be used by retrieveDocument to set request headers correctly', async () => {
-        const contentType = 'application/xml';
-        const accessToken = 'xml-token';
-        mockCommonTokenService.getAccessToken.mockResolvedValue(accessToken);
-
-        const mockStream = new Readable();
-        mockStream.push('test data');
-        mockStream.push(null);
-
-        mockAxios
-          .onGet('https://test-contentmanager.com/documents/test-id')
-          .reply(HttpStatus.OK, mockStream);
-
-        await service.retrieveDocument('test-id', contentType);
-
-        const request = mockAxios.history.get[0]!;
-        expect(request.headers?.['Content-Type']).toBe(contentType);
-        expect(request.headers?.['Authorization']).toBe(`Bearer ${accessToken}`);
-      });
-    });
+    // Header behavior is already asserted via retrieveDocument tests above.
   });
 });
 
