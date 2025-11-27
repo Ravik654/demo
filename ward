@@ -86,7 +86,7 @@ describe('ContentManagerRetrievalService', () => {
         );
         expect(mockCommonTokenService.getAccessToken).toHaveBeenCalled();
         expect(mockAxios.history.get).toHaveLength(1);
-        const request = mockAxios.history.get[0];
+        const request = mockAxios.history.get[0]!;
         expect(request.headers?.['Content-Type']).toBe(testContentType);
         expect(request.headers?.['Authorization']).toBe('Bearer mock-access-token');
       });
@@ -198,7 +198,7 @@ describe('ContentManagerRetrievalService', () => {
         await service.retrieveDocument(testId, testContentType);
 
         expect(mockCommonTokenService.getAccessToken).toHaveBeenCalled();
-        const request = mockAxios.history.get[0];
+        const request = mockAxios.history.get[0]!;
         expect(request.headers?.['Content-Type']).toBe(testContentType);
         expect(request.headers?.['Authorization']).toBe('Bearer mock-access-token');
       });
@@ -214,7 +214,7 @@ describe('ContentManagerRetrievalService', () => {
 
         await service.retrieveDocument(testId, testContentType);
 
-        expect(mockAxios.history.get[0].url).toBe(
+        expect(mockAxios.history.get[0]!.url).toBe(
           `https://test-contentmanager.com/documents/${testId}`
         );
       });
@@ -230,7 +230,7 @@ describe('ContentManagerRetrievalService', () => {
 
         await service.retrieveDocument(testId, testContentType);
 
-        const request = mockAxios.history.get[0];
+        const request = mockAxios.history.get[0]!;
         expect(request.config?.responseType).toBe('stream');
       });
     });
@@ -274,7 +274,7 @@ describe('ContentManagerRetrievalService', () => {
 
         await service.retrieveDocument('test-id', contentType);
 
-        const request = mockAxios.history.get[0];
+        const request = mockAxios.history.get[0]!;
         expect(request.headers?.['Content-Type']).toBe(contentType);
         expect(request.headers?.['Authorization']).toBe(`Bearer ${accessToken}`);
       });
